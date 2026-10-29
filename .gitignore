@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
+frontend/dist/
+# Local data directories must never be committed: they hold case evidence.
+data/
+*.db
+*.db-shm
+*.db-wal
