@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Phase 2 — event schema, parsers, events API (2026-10-29)
+- Normalized event schema v1.0.0 as JSON Schema (`mizar/schemas/event.v1.json`)
+  with generated documentation (`docs/event-schema.md`).
+- Parsers: traditional/rsyslog syslog, RFC 5424, journald JSON, auditd
+  (multi-record grouping, hex decoding, ENRICHED format), native EVTX, EVTX
+  XML/JSON/CSV exports, Apache/Nginx access, Zeek TSV/JSON, CEF, LEEF, Squid,
+  and generic text/JSON-lines fallbacks. Message parsers for sshd, PAM, sudo,
+  su, account management, cron and netfilter/UFW.
+- Timezone policy implemented: UTC only from explicit offsets, format-defined
+  UTC, or analyst hints; year hints with flagged rollover; DST-ambiguous and
+  nonexistent local times are not guessed.
+- Parse jobs queued automatically after detection; re-parse with new hints or
+  format override; parse results with statistics and file-level problems
+  (e.g. unreadable EVTX chunks); failures keep records parsed so far.
+- Duplicate groups across source files without removing any record.
+- Events API: filtered search, event detail with the raw record read back from
+  the evidence file and verified against its hash.
+- Deterministic synthetic scenario generator with ground truth
+  (`fixtures/generator`), and Apache-2.0 EVTX samples.
+- Property-based tests: parsers never crash on arbitrary input and every line
+  stays traceable to its exact bytes.
+
 ### Phase 1 — cases, evidence intake, jobs (2026-10-29)
 - Cases: create, list, get, update, delete. Deletion requires the exact case
   name, is refused while a job runs, and removes records, exports and evidence

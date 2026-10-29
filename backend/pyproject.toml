@@ -44,7 +44,7 @@ mizar = "mizar.__main__:main"
 include = ["mizar*"]
 
 [tool.setuptools.package-data]
-mizar = ["db/migrations/*.py", "db/migrations/*.mako", "db/migrations/versions/*.py"]
+mizar = ["db/migrations/*.py", "db/migrations/*.mako", "db/migrations/versions/*.py", "schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

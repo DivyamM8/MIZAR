@@ -33,6 +33,10 @@ def new_request_id() -> str:
     return f"req_{ULID()}"
 
 
+def new_parse_result_id() -> str:
+    return f"PR-{ULID()}"
+
+
 def new_source_file_id() -> str:
     return f"SF-{ULID()}"
 
@@ -42,8 +46,23 @@ def canonical_locator(locator: Mapping[str, Any]) -> str:
     return json.dumps(locator, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
-def event_id(case_id: str, source_sha256: str, locator: Mapping[str, Any]) -> str:
-    name = f"{case_id}|{source_sha256.lower()}|{canonical_locator(locator)}"
+def event_id(
+    case_id: str, source_file_id: str, source_sha256: str, locator: Mapping[str, Any]
+) -> str:
+    """Stable per record: re-parsing the same source file yields the same IDs.
+
+    source_file_id is included because one case can hold the same content twice
+    (a duplicate upload); those are distinct records, linked by duplicate groups.
+    """
+    return event_id_from_canonical(
+        case_id, source_file_id, source_sha256, canonical_locator(locator)
+    )
+
+
+def event_id_from_canonical(
+    case_id: str, source_file_id: str, source_sha256: str, locator_json: str
+) -> str:
+    name = f"{case_id}|{source_file_id}|{source_sha256.lower()}|{locator_json}"
     return str(uuid.uuid5(MIZAR_EVENT_NAMESPACE, name))
 
 

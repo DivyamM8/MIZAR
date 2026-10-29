@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from mizar.evidence import service as evidence
+from mizar.ingest.parse import PARSE_JOB, parse_file_job
 from mizar.ingest.service import ingest_file_job
 from mizar.jobs.worker import JobContext, register
 
 register(evidence.INGEST_JOB)(ingest_file_job)
+register(PARSE_JOB)(parse_file_job)
 
 
 @register(evidence.VERIFY_JOB)

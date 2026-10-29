@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mizar.local/schemas/event/1.0.0",
+  "title": "MIZAR normalized event",
+  "description": "Normalized record produced from one original log record. Version 1.0.0. Fields that a source does not provide are null; parsers never invent values. The original bytes stay in the immutable evidence file at original_record_reference; formats that cannot be read back by offset (EVTX, XML/JSON/CSV exports, UTF-16 text) also keep a stored copy. Storage holds schema_version, parser_version and ingestion_time once per parse result; the API presents them on every event.",
+  "x-schema-version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id", "schema_version", "case_id", "source_file_id", "parse_result_id",
+    "source_type", "parser_name", "parser_version", "record_index",
+    "original_record_reference", "record_hash", "timestamp_original", "timestamp_utc",
+    "timestamp_precision", "timezone_assumption", "hostname", "username", "user_domain",
+    "source_ip", "destination_ip", "source_port", "destination_port", "protocol",
+    "event_category", "event_type", "event_outcome", "event_code", "process_name",
+    "process_id", "session_id", "message", "extra", "parsing_status", "parse_warnings",
+    "ingestion_time"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string", "format": "uuid",
+      "description": "Stable identifier: UUIDv5 of case, source file, content hash and record locator. Re-parsing the same source file yields the same IDs."
+    },
+    "schema_version": {"const": "1.0.0", "description": "Version of this schema the event conforms to."},
+    "case_id": {"type": "string", "description": "Case the event belongs to."},
+    "source_file_id": {"type": "string", "description": "Source file (evidence record) the original record came from."},
+    "parse_result_id": {"type": "string", "description": "Parse run that produced this event (parser, version and hints used)."},
+    "source_type": {
+      "enum": [
+        "linux_auth", "syslog", "journald", "auditd", "windows_evtx", "windows_evtx_export",
+        "web_access", "zeek", "firewall", "cef", "leef", "proxy", "generic"
+      ],
+      "description": "Kind of source the record came from."
+    },
+    "parser_name": {"type": "string", "description": "Parser that produced the event, e.g. linux.sshd."},
+    "parser_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "SemVer of the parser."},
+    "record_index": {"type": "integer", "minimum": 0, "description": "0-based position of the record within its source file, in parse order."},
+    "original_record_reference": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["line", "lines", "evtx_record", "json_line", "json_array_item", "xml_event", "csv_row"]}
+      },
+      "description": "Locator of the original record within the source file: line numbers (1-based) and byte offsets for text, the record ID for EVTX, item or row indexes for structured exports."
+    },
+    "record_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the raw record bytes. Used to find the same record collected twice."},
+    "timestamp_original": {"type": ["string", "null"], "description": "Timestamp exactly as written in the record."},
+    "timestamp_utc": {
+      "type": ["string", "null"], "format": "date-time",
+      "description": "UTC time, only when conversion is reliable (see timezone_assumption). Null otherwise; never guessed."
+    },
+    "timestamp_precision": {"enum": ["s", "ms", "us", "ns", null], "description": "Precision of the original timestamp."},
+    "timezone_assumption": {
+      "type": "string",
+      "pattern": "^(explicit|format_defined_utc|none|analyst_hint:.+)$",
+      "description": "Basis for timestamp_utc: explicit offset in the record, UTC by format definition, analyst-supplied IANA zone, or none (timestamp_utc is null)."
+    },
+    "hostname": {"type": ["string", "null"], "description": "Host that generated the record, as written."},
+    "username": {"type": ["string", "null"], "description": "Primary subject or target account of the event, as written (case preserved). See extra for other accounts involved."},
+    "user_domain": {"type": ["string", "null"], "description": "Windows domain or realm of username."},
+    "source_ip": {"type": ["string", "null"], "description": "Validated IPv4/IPv6 address. Invalid values are null and kept in extra with an invalid_ip warning."},
+    "destination_ip": {"type": ["string", "null"], "description": "Validated IPv4/IPv6 address."},
+    "source_port": {"type": ["integer", "null"], "minimum": 0, "maximum": 65535},
+    "destination_port": {"type": ["integer", "null"], "minimum": 0, "maximum": 65535},
+    "protocol": {"type": ["string", "null"], "description": "Lowercase protocol, e.g. tcp, udp, ssh, http."},
+    "event_category": {
+      "enum": [
+        "authentication", "account_management", "privilege", "process", "service",
+        "scheduled_task", "file", "network", "web", "system", "other", null
+      ],
+      "description": "Broad category."
+    },
+    "event_type": {"type": ["string", "null"], "description": "Normalized action, e.g. logon, logon_failed, user_created, http_request, connection_denied."},
+    "event_outcome": {"enum": ["success", "failure", "unknown", null], "description": "Outcome as recorded by the source. Null when not applicable."},
+    "event_code": {"type": ["string", "null"], "description": "Native code: Windows EventID, HTTP status, auditd record type, CEF signature ID."},
+    "process_name": {"type": ["string", "null"], "description": "Process that logged or performed the action."},
+    "process_id": {"type": ["integer", "null"], "minimum": 0},
+    "session_id": {"type": ["string", "null"], "description": "Key that links events of one session: Windows logon ID, sshd process, Zeek uid, auditd session."},
+    "message": {"type": ["string", "null"], "description": "Human-readable message as in the source, not rewritten."},
+    "extra": {"type": "object", "description": "Source-specific fields not in the core schema."},
+    "parsing_status": {
+      "enum": ["parsed", "partial", "unparsed"],
+      "description": "parsed: all applicable fields extracted; partial: some fields could not be extracted or validated; unparsed: kept as raw only."
+    },
+    "parse_warnings": {"type": "array", "items": {"type": "string"}, "description": "Machine-readable warning codes, e.g. timestamp_unparsed, invalid_ip, year_rollover_inferred."},
+    "ingestion_time": {"type": "string", "format": "date-time", "description": "When MIZAR created the event (UTC)."}
+  }
+}

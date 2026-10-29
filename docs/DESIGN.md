@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | **Approved for implementation** |
-| Document version | 0.3.0 |
+| Document version | 0.4.0 |
 | Licence | Apache-2.0 |
 | Date | 2026-10-29 |
 | Event schema version | 1.0.0 (proposed) |
@@ -73,7 +73,7 @@ investigators. **Secondary:** CTF participants and learners.
 | D4 | Deployment | Binds to `127.0.0.1` only, no login; native (venv + npm build) or Podman/Docker compose | Single analyst. Analyst name entered per case for attribution |
 | D5 | EVTX library | `evtx` (Rust-backed `pyevtx-rs`) with `python-evtx` as fallback | `python-evtx` is pure Python and too slow for multi-GB files |
 | D6 | PDF engine | ReportLab (Platypus) | Pure-Python wheels, no native deps. Unlike HTML-to-PDF engines it never fetches URLs, so hostile log content cannot cause SSRF or local file reads in the renderer |
-| D7 | Raw record storage | Locator into the original evidence file **plus** a zlib-compressed copy of the raw record in a separate table | Fast evidence display without seeking multi-GB files. The locator lets any record be re-verified against the original |
+| D7 | Raw record storage (revised in Phase 2) | Line-framed UTF-8 records are read back from the immutable evidence file by byte offset and verified against `record_hash` on every view. A stored copy is kept only where the locator cannot be read back cheaply (EVTX renderings, XML/JSON/CSV items, UTF-16 text), zlib-compressed only when that makes it smaller | Measured: per-record zlib did not shrink short lines (97 vs 96 bytes) and a second copy cost ~16% of the database. Reading from the evidence file also proves the shown bytes still match the original |
 | D8 | Job execution | One separate worker process polling a persistent `jobs` table | Keeps the API responsive (GIL). No Redis/Celery needed for a single analyst |
 | D9 | Analyst action audit log | **Not in v1** (by request). Findings keep `status`, `analyst_notes`, `updated_by`, `updated_at` | The analysis-run record (§12) is still required and kept |
 | D10 | Test data | Synthetic fixture generator with planted scenarios and a ground-truth manifest | Detections are tested against known answers |
@@ -87,6 +87,11 @@ investigators. **Secondary:** CTF participants and learners.
 | D18 | Upload transport | One raw-body request per file instead of multipart | Single-pass hashing straight into the evidence store; no second copy in a temp directory; early size-limit rejection; per-file errors. The UI sends several requests for a multi-file selection |
 | D19 | Store concurrency | A cross-process `flock` on the evidence store is held while a blob is committed together with its database row, and while deletion checks references | Prevents a blob being deleted between being stored and being referenced (API and worker are separate processes) |
 | D20 | Truncated compressed data | Recovered bytes are kept as the member, with an `ARCHIVE_TRUNCATED` warning | Partial logs from a damaged rotation file are still evidence |
+| D21 | EVTX test data | Samples from the `evtx` Rust project (Apache-2.0), pinned to a commit, in `fixtures/third_party/evtx` | EVTX-ATTACK-SAMPLES is GPL-3.0, incompatible with D16 |
+| D22 | XML parsing | Python stdlib ElementTree, with DOCTYPE/ENTITY declarations refused | Python 3.14's expat resists entity expansion and never fetches external entities; no extra dependency |
+| D23 | Windows exports without field names | Get-WinEvent JSON (positional `Properties`) and Event Viewer CSV (rendered message only) map the event ID's meaning but leave account/IP fields null, marked `partial` | Guessing which positional value is the username would produce misleading data |
+| D24 | Per-parse constants | `schema_version`, `parser_version`, `ingestion_time` are stored once per parse result and joined into every event by the API | Same schema to clients, ~40 bytes less per stored event |
+| D25 | Query planning | Selective filters (IP, user, host, file, event type) write the case condition as `+case_id` so SQLite uses the selective index; `PRAGMA optimize` runs after each parse | Measured: case-scoped IP lookup on 1M events 469 ms → 0.1 ms |
 
 ---
 
@@ -199,7 +204,7 @@ All IDs are stable and deterministic where the inputs permit it:
 |---|---|---|
 | `case_id` | `CASE-<ULID>` | Random at creation |
 | `source_file_id` | `SF-<ULID>` | Random. Each file also has a per-case display `sequence` (#1, #2, …). Re-uploading identical bytes into the same case creates a new record flagged `DUPLICATE_UPLOAD`. Event IDs do not depend on this ID (they use the content hash) |
-| `event_id` | UUIDv5(`MIZAR_NS`, `case_id \| source_file_sha256 \| record_locator`) | Same file in the same case always yields the same event IDs |
+| `event_id` | UUIDv5(`MIZAR_NS`, `case_id \| source_file_id \| source_file_sha256 \| record_locator`) | Re-parsing the same source file always yields the same event IDs. `source_file_id` is included because one case can hold the same content twice (a duplicate upload); those are distinct records, linked by duplicate groups |
 | `run_id` | `RUN-<ULID>` | Random per run |
 | `finding_id` | `<run_id>-F<4-digit sequence>` | Sequence assigned after deterministic sort (§12.2) |
 | `finding_fingerprint` | SHA-256 of `rule_id \| rule_major_version \| grouping key values` | Same pattern across re-runs gets the same fingerprint, so analyst status and notes carry forward |
@@ -227,7 +232,8 @@ This is a correctness requirement. MIZAR never invents timezone information.
    | `none` | No reliable basis; `timestamp_utc` is `null` |
 
 4. Formats without a year (RFC 3164 `Oct 29 12:00:01`): the year must come
-   from an analyst-supplied **year hint**. If the timestamps go backwards across
+   from an analyst-supplied **year hint** (the year of the file's first
+   record). If the timestamps go backwards across
    a month boundary (Dec → Jan) the year is incremented and the warning
    `year_rollover_inferred` is attached to the affected events. Without a year
    hint, `timestamp_utc` is `null`.
@@ -249,9 +255,11 @@ This is a correctness requirement. MIZAR never invents timezone information.
 
 ## 5. Normalized event schema v1.0.0
 
-The schema is defined as JSON Schema in `backend/schemas/event.v1.json` (source
-of truth). `docs/event-schema.md` is generated from it. Every event row carries
-`schema_version`.
+The schema is defined as JSON Schema in `backend/mizar/schemas/event.v1.json`
+(source of truth; Python reads its enumerations from it).
+[docs/event-schema.md](event-schema.md) is generated from it, and a test fails
+if it is stale. Every event the API returns carries `schema_version` (stored
+once per parse result, D24).
 
 **Versioning rules (SemVer):** MAJOR = field removed, renamed, or changed in
 meaning or type. MINOR = new nullable field. PATCH = documentation only.
@@ -292,7 +300,7 @@ export embeds its schema version.
 | `session_id` | string | yes | Linking key: Windows `TargetLogonId`, sshd PID session, Zeek `uid`, auditd `ses` |
 | `message` | string | yes | Human-readable message as in the source (not rewritten) |
 | `extra` | JSON object | yes | Source-specific fields not in the core schema, e.g. `LogonType`, `user_agent`, `http_method`, `url`, `status` |
-| `raw_record_ref` | int | no | FK into `raw_records` (D7) |
+| `record_index` | int | no | 0-based position of the record within its file, in parse order |
 | `parsing_status` | enum | no | `parsed`, `partial` (some fields failed), `unparsed` (stored as raw only, generic fallback) |
 | `parse_warnings` | string[] | yes | Machine-readable codes, e.g. `timestamp_unparsed`, `invalid_ip`, `year_rollover_inferred`, `truncated_record` |
 | `ingestion_time` | datetime (UTC) | no | When MIZAR created the event |
@@ -308,9 +316,11 @@ Rules for parsers:
 ### 5.2 Indexing (SQLite)
 
 Indexes on `(case_id, timestamp_utc)`, `source_ip`, `destination_ip`,
-`username`, `hostname`, `session_id`, `(event_category, event_type)`,
-`event_code`, `source_file_id`, `record_hash`. FTS5 virtual table on `message`
-for analyst search.
+`username`, `hostname`, `session_id`, `event_type`, `event_code`,
+`record_hash`, and `(source_file_id, record_index)` (unique). See D25 for how
+queries use them. Message search is a substring match in v1; an FTS5 index is
+deferred until the search UI (Phase 5) shows it is needed, because keeping it
+in sync costs ingestion speed.
 
 ---
 
@@ -426,11 +436,18 @@ fallback parser as a **coverage gap**.
 
 Nothing is deleted or merged destructively.
 
-- **Exact duplicates:** events in the same case with the same `record_hash`
-  *and* the same `timestamp_original`, `hostname`, and `source_type`. They are
-  typically the same log collected twice, e.g. `auth.log` and `auth.log.1`
-  overlapping. They form an `EventGroup(type=duplicate)` that lists every
-  member event and its source file. The UI shows one row with a "×N sources"
+- **Exact duplicates:** records with identical raw bytes (`record_hash`) in
+  *different* source files of a case, typically the same log collected twice
+  (e.g. `auth.log` and an overlapping `auth.log.1`). Identical lines within one
+  file are distinct records and are never grouped. If a record occurs k times
+  in file A and k times in file B, the n-th occurrence in A is grouped with the
+  n-th in B. They form an `EventGroup(type=duplicate)` that lists every
+  member event and its source file. Groups are rebuilt after each parse that
+  touches shared records.
+- **Limitation:** formats whose lines do not name the host (web access logs)
+  can produce identical lines on two different servers in the same second.
+  Those would be grouped as duplicates. The group is visible and
+  non-destructive, and the report states this limitation. The UI shows one row with a "×N sources"
   badge and can expand it. Rules count a duplicate group **once** (configurable),
   so collecting the same log twice does not inflate brute-force counts. The
   finding still lists every member event as evidence.
@@ -884,9 +901,12 @@ color alone). Dark and light themes. All assets are bundled locally (no CDN).
   always preserve the raw record.
 - **Integration tests:** upload → parse → run → export, determinism check
   (two runs give identical findings), integrity tamper test.
-- **Performance test:** a 2 GB synthetic case. Targets: ingestion ≥ 50k
-  events/s for text formats on a typical workstation, finding list < 500 ms,
-  timeline page < 1 s.
+- **Performance test:** a 2 GB synthetic case. The original target of 50k
+  events/s was an estimate and is not met by single-process Python parsing.
+  Measured in Phase 2 (1M syslog lines, 97 MB, one worker): **~14k events/s**
+  (≈ 12 min per 10M events), database ≈ 9.8× the log size, case-scoped field
+  lookups ≈ 10 ms. Revised targets: ≥ 12k events/s for text formats, finding
+  list < 500 ms, timeline page < 1 s (keyset pagination, Phase 4).
 - Tooling: pytest, ruff, mypy (strict on core packages), ESLint + TypeScript
   strict, Vitest, Playwright for a few end-to-end flows.
 

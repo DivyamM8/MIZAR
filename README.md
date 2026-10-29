@@ -3,10 +3,11 @@
 Local log analysis and investigation tool for SOC analysts, incident
 responders, and digital forensic investigators.
 
-> Status: **Phase 1** — cases, evidence upload with hashing, archive
-> expansion, format detection and the background worker are implemented
-> (API only). Parsing, detection rules, UI and reporting come in later phases.
-> See [docs/DESIGN.md](docs/DESIGN.md) for the design and delivery plan.
+> Status: **Phase 2**. Cases, evidence upload with hashing, archive
+> expansion, format detection, parsing into the normalized event schema, and
+> an events API are implemented (API only). Detection rules, correlation, UI
+> and reporting come in later phases. See [docs/DESIGN.md](docs/DESIGN.md) and
+> [docs/event-schema.md](docs/event-schema.md).
 
 ## Requirements
 
@@ -45,6 +46,15 @@ MIZAR listens on loopback only. It refuses to start with a non-loopback
 
 The data directory holds case evidence. Keep it on encrypted storage and never
 commit it.
+
+## Test data
+
+```bash
+python3 fixtures/generator/generate.py fixtures/scenarios   # synthetic scenarios + ground truth
+```
+
+Native EVTX samples in `fixtures/third_party/evtx` come from the `evtx`
+project under Apache-2.0 (see [fixtures/THIRD_PARTY.md](fixtures/THIRD_PARTY.md)).
 
 ## Development
 

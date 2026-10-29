@@ -7,19 +7,28 @@ temp directory). Clients upload several files with several requests.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import anyio.to_thread
 from fastapi import APIRouter, Query, Request, status
 from starlette.requests import ClientDisconnect
 
 from mizar.api.deps import EngineDep, SettingsDep, StoreDep
-from mizar.api.schemas import FormatOut, JobQueued, SourceFileOut, UploadOut
+from mizar.api.schemas import (
+    FormatOut,
+    JobQueued,
+    ParseResultOut,
+    Reparse,
+    SourceFileOut,
+    SourceFileWithParse,
+    UploadOut,
+)
 from mizar.core.errors import ErrorCode, MizarError
 from mizar.core.timeutil import validate_timezone_name
 from mizar.evidence import service as evidence
 from mizar.evidence.store import CHUNK_BYTES, BlobWriter
 from mizar.ingest.formats import FORMATS, is_known_format
+from mizar.ingest.parse import current_parse_results, queue_parse
 
 router = APIRouter(tags=["evidence"])
 
@@ -119,14 +128,55 @@ async def upload_file(
     return UploadOut(source_file=SourceFileOut.from_row(row), job_id=job_id)
 
 
+def _with_parse(row: dict[str, Any], parses: dict[str, dict[str, Any]]) -> SourceFileWithParse:
+    parse = parses.get(row["source_file_id"])
+    return SourceFileWithParse(
+        **SourceFileOut.from_row(row).model_dump(),
+        parse=ParseResultOut(**parse) if parse else None,
+    )
+
+
 @router.get("/api/cases/{case_id}/files")
-def list_files(case_id: str, engine: EngineDep) -> list[SourceFileOut]:
-    return [SourceFileOut.from_row(row) for row in evidence.list_source_files(engine, case_id)]
+def list_files(case_id: str, engine: EngineDep) -> list[SourceFileWithParse]:
+    rows = evidence.list_source_files(engine, case_id)
+    parses = current_parse_results(engine, case_id)
+    return [_with_parse(row, parses) for row in rows]
 
 
 @router.get("/api/cases/{case_id}/files/{source_file_id}")
-def get_file(case_id: str, source_file_id: str, engine: EngineDep) -> SourceFileOut:
-    return SourceFileOut.from_row(evidence.get_source_file(engine, case_id, source_file_id))
+def get_file(case_id: str, source_file_id: str, engine: EngineDep) -> SourceFileWithParse:
+    row = evidence.get_source_file(engine, case_id, source_file_id)
+    return _with_parse(row, current_parse_results(engine, case_id))
+
+
+@router.post(
+    "/api/cases/{case_id}/files/{source_file_id}/reparse", status_code=status.HTTP_202_ACCEPTED
+)
+def reparse_file(case_id: str, source_file_id: str, body: Reparse, engine: EngineDep) -> JobQueued:
+    """Change hints or the format override, then parse the file again."""
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("format_override") is not None and not is_known_format(
+        changes["format_override"]
+    ):
+        raise _invalid("format_override", f"unknown format {changes['format_override']!r}")
+    with engine.begin() as conn:
+        row = evidence.get_source_file_conn(conn, source_file_id)
+        if row["case_id"] != case_id:
+            raise MizarError(
+                ErrorCode.FILE_NOT_FOUND,
+                "Source file not found.",
+                details={"source_file_id": source_file_id},
+            )
+        if row["status"] != "ready":
+            raise MizarError(
+                ErrorCode.FILE_NOT_PARSEABLE,
+                f"Only detected log files can be parsed (this file is {row['status']}).",
+                details={"status": row["status"]},
+            )
+        if changes:
+            evidence.update_source_file(conn, source_file_id, **changes)
+        job_id = queue_parse(conn, case_id, source_file_id)
+    return JobQueued(job_id=job_id)
 
 
 @router.post("/api/cases/{case_id}/verify", status_code=status.HTTP_202_ACCEPTED)

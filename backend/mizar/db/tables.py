@@ -15,6 +15,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     String,
     Table,
@@ -130,4 +131,164 @@ source_files = Table(
     Index(None, "case_id"),
     Index(None, "blob_sha256"),
     Index(None, "parent_file_id"),
+)
+
+PARSE_RESULT_STATUSES = ("running", "succeeded", "succeeded_with_warnings", "failed", "cancelled")
+
+parse_results = Table(
+    "parse_results",
+    metadata,
+    Column("parse_result_id", String(40), primary_key=True),
+    Column("case_id", String(40), ForeignKey("cases.case_id", ondelete="CASCADE"), nullable=False),
+    Column(
+        "source_file_id",
+        String(40),
+        ForeignKey("source_files.source_file_id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    # Only the latest parse of a file is current; earlier results are kept for provenance.
+    Column("is_current", Boolean, nullable=False),
+    Column("format_id", String(40), nullable=False),
+    Column("parser_name", String(60), nullable=False),
+    Column("parser_version", String(20), nullable=False),
+    # Per-parse constants of every event it produced (kept here, not repeated per row).
+    Column("schema_version", String(16), nullable=False),
+    # Hints in effect for this parse (they change timestamp_utc).
+    Column("timezone_hint", String(64)),
+    Column("year_hint", Integer),
+    Column("status", String(30), nullable=False),
+    Column("started_at", UTCDateTime(), nullable=False),
+    Column("finished_at", UTCDateTime()),
+    Column("records_total", Integer, nullable=False, default=0),
+    Column("records_parsed", Integer, nullable=False, default=0),
+    Column("records_partial", Integer, nullable=False, default=0),
+    Column("records_unparsed", Integer, nullable=False, default=0),
+    # Counts per event warning code, plus file-level problems such as unreadable EVTX chunks.
+    Column("warnings_by_code", JSON, nullable=False),
+    Column("file_problems", JSON, nullable=False),
+    Column("first_timestamp_utc", UTCDateTime()),
+    Column("last_timestamp_utc", UTCDateTime()),
+    Column("error_code", String(64)),
+    Column("error_message", Text),
+    CheckConstraint(
+        "status IN ('running', 'succeeded', 'succeeded_with_warnings', 'failed', 'cancelled')",
+        name="status",
+    ),
+    Index(None, "source_file_id", "is_current"),
+    Index(None, "case_id"),
+)
+
+# schema_version, parser_version and ingestion_time are per parse: the API joins them
+# from parse_results (ingestion_time = parse_results.started_at).
+events = Table(
+    "events",
+    metadata,
+    Column("event_id", String(36), primary_key=True),
+    Column("case_id", String(40), ForeignKey("cases.case_id", ondelete="CASCADE"), nullable=False),
+    Column(
+        "source_file_id",
+        String(40),
+        ForeignKey("source_files.source_file_id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column(
+        "parse_result_id",
+        String(40),
+        ForeignKey("parse_results.parse_result_id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("source_type", String(30), nullable=False),
+    Column("parser_name", String(60), nullable=False),
+    Column("record_index", Integer, nullable=False),
+    Column("original_record_reference", JSON, nullable=False),
+    Column("record_hash", String(64), nullable=False),
+    Column("timestamp_original", Text),
+    Column("timestamp_utc", UTCDateTime()),
+    Column("timestamp_precision", String(2)),
+    Column("timezone_assumption", String(80), nullable=False),
+    Column("hostname", Text),
+    Column("username", Text),
+    Column("user_domain", Text),
+    Column("source_ip", String(45)),
+    Column("destination_ip", String(45)),
+    Column("source_port", Integer),
+    Column("destination_port", Integer),
+    Column("protocol", String(20)),
+    Column("event_category", String(30)),
+    Column("event_type", String(60)),
+    Column("event_outcome", String(10)),
+    Column("event_code", String(40)),
+    Column("process_name", Text),
+    Column("process_id", Integer),
+    Column("session_id", Text),
+    Column("message", Text),
+    Column("extra", JSON, nullable=False),
+    Column("parsing_status", String(10), nullable=False),
+    Column("parse_warnings", JSON, nullable=False),
+    UniqueConstraint("source_file_id", "record_index"),
+    # Single-column filter indexes stay small; planner statistics (PRAGMA optimize after
+    # each parse) let SQLite prefer them over the case_id index for selective filters.
+    Index(None, "case_id", "timestamp_utc"),
+    Index(None, "source_ip"),
+    Index(None, "destination_ip"),
+    Index(None, "username"),
+    Index(None, "hostname"),
+    Index(None, "session_id"),
+    Index(None, "event_type"),
+    Index(None, "event_code"),
+    Index(None, "record_hash"),
+)
+
+# Copies of original record bytes, only for records whose locator cannot be read back
+# cheaply from the evidence file (EVTX renderings, XML/JSON/CSV items, UTF-16 text).
+# Line-framed UTF-8 records are read from the evidence file by byte offset and
+# verified against record_hash instead (DESIGN.md D7).
+raw_records = Table(
+    "raw_records",
+    metadata,
+    Column(
+        "event_id",
+        String(36),
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    # Text encoding of the bytes, or "binary-rendering" for EVTX (see DESIGN.md §7.2).
+    Column("encoding", String(30), nullable=False),
+    Column("compression", String(8), nullable=False),
+    Column("size_bytes", Integer, nullable=False),
+    Column("data", LargeBinary, nullable=False),
+    CheckConstraint("compression IN ('none', 'zlib')", name="compression"),
+)
+
+EVENT_GROUP_TYPES = ("duplicate", "session", "chain")
+
+event_groups = Table(
+    "event_groups",
+    metadata,
+    Column("group_id", String(40), primary_key=True),
+    Column("case_id", String(40), ForeignKey("cases.case_id", ondelete="CASCADE"), nullable=False),
+    Column("group_type", String(16), nullable=False),
+    Column("group_key", Text, nullable=False),
+    Column("member_count", Integer, nullable=False),
+    Column("created_at", UTCDateTime(), nullable=False),
+    CheckConstraint("group_type IN ('duplicate', 'session', 'chain')", name="group_type"),
+    Index(None, "case_id", "group_type"),
+)
+
+event_group_members = Table(
+    "event_group_members",
+    metadata,
+    Column(
+        "group_id",
+        String(40),
+        ForeignKey("event_groups.group_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "event_id",
+        String(36),
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Index(None, "event_id"),
 )

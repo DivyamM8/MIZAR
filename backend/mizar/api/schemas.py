@@ -143,3 +143,106 @@ class FormatOut(BaseModel):
     format_id: str
     label: str
     family: str
+
+
+class ParseResultOut(BaseModel):
+    parse_result_id: str
+    format_id: str
+    parser_name: str
+    parser_version: str
+    timezone_hint: str | None
+    year_hint: int | None
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
+    records_total: int
+    records_parsed: int
+    records_partial: int
+    records_unparsed: int
+    warnings_by_code: dict[str, int]
+    file_problems: dict[str, Any]
+    first_timestamp_utc: datetime | None
+    last_timestamp_utc: datetime | None
+    error_code: str | None
+    error_message: str | None
+
+
+class SourceFileWithParse(SourceFileOut):
+    parse: ParseResultOut | None
+
+
+class Reparse(_Input):
+    format_override: str | None = Field(default=None, max_length=40)
+    timezone_hint: str | None = Field(default=None, max_length=64)
+    year_hint: int | None = Field(default=None, ge=1970, le=2100)
+
+    _tz = field_validator("timezone_hint")(_check_timezone)
+
+
+class EventOut(BaseModel):
+    event_id: str
+    schema_version: str
+    case_id: str
+    source_file_id: str
+    parse_result_id: str
+    source_type: str
+    parser_name: str
+    parser_version: str
+    record_index: int
+    original_record_reference: dict[str, Any]
+    record_hash: str
+    timestamp_original: str | None
+    timestamp_utc: datetime | None
+    timestamp_precision: str | None
+    timezone_assumption: str
+    hostname: str | None
+    username: str | None
+    user_domain: str | None
+    source_ip: str | None
+    destination_ip: str | None
+    source_port: int | None
+    destination_port: int | None
+    protocol: str | None
+    event_category: str | None
+    event_type: str | None
+    event_outcome: str | None
+    event_code: str | None
+    process_name: str | None
+    process_id: int | None
+    session_id: str | None
+    message: str | None
+    extra: dict[str, Any]
+    parsing_status: str
+    parse_warnings: list[str]
+    ingestion_time: datetime
+
+
+class RawRecordOut(BaseModel):
+    # evidence_file: read back from the original by locator; stored_copy: kept at parse time.
+    source: str
+    encoding: str
+    size_bytes: int
+    text: str
+    lossless: bool
+    # For evidence_file reads: whether the bytes still match record_hash.
+    verified: bool | None
+    display_truncated: bool
+
+
+class EventGroupOut(BaseModel):
+    group_id: str
+    group_type: str
+    member_count: int
+    members: list[dict[str, str]]
+
+
+class EventDetail(EventOut):
+    raw_record: RawRecordOut | None
+    groups: list[EventGroupOut]
+
+
+class EventPage(BaseModel):
+    items: list[EventOut]
+    total: int
+    limit: int
+    offset: int

@@ -27,6 +27,7 @@ from mizar.evidence.archives import (
 from mizar.evidence.store import StoredBlob
 from mizar.ingest.detect import HEAD_BYTES, detect_format
 from mizar.ingest.formats import is_known_format
+from mizar.ingest.parse import queue_parse
 from mizar.jobs.worker import JobCancelled, JobContext, WorkerStopping
 
 log = logging.getLogger(__name__)
@@ -118,16 +119,18 @@ def _process_one(ctx: JobContext, file_id: str) -> tuple[str, list[str]]:
     override = row["format_override"]
     if override is not None and not is_known_format(override):
         raise MizarError(ErrorCode.VALIDATION_ERROR, f"Unknown format override {override!r}.")
-    _save(
-        ctx,
-        file_id,
-        status="ready",
-        detected_format=result.format_id,
-        detection_confidence=result.confidence,
-        detection_candidates=result.candidates_json(),
-        encoding=result.encoding,
-        validation_messages=messages,
-    )
+    with ctx.deps.engine.begin() as conn:
+        evidence.update_source_file(
+            conn,
+            file_id,
+            status="ready",
+            detected_format=result.format_id,
+            detection_confidence=result.confidence,
+            detection_candidates=result.candidates_json(),
+            encoding=result.encoding,
+            validation_messages=messages,
+        )
+        queue_parse(conn, row["case_id"], file_id)
     return "ready", []
 
 

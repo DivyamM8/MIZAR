@@ -9,16 +9,18 @@ SHA = "ab" * 32
 
 
 def test_event_id_is_deterministic_and_locator_order_independent() -> None:
-    a = ids.event_id("CASE-1", SHA, {"kind": "line", "line": 7, "byte_offset": 100})
-    b = ids.event_id("CASE-1", SHA.upper(), {"byte_offset": 100, "line": 7, "kind": "line"})
+    a = ids.event_id("CASE-1", "SF-1", SHA, {"kind": "line", "line": 7, "byte_offset": 100})
+    b = ids.event_id("CASE-1", "SF-1", SHA.upper(), {"byte_offset": 100, "line": 7, "kind": "line"})
     assert a == b
 
 
-def test_event_id_differs_per_case_file_and_record() -> None:
-    base = ids.event_id("CASE-1", SHA, {"kind": "line", "line": 7})
-    assert ids.event_id("CASE-2", SHA, {"kind": "line", "line": 7}) != base
-    assert ids.event_id("CASE-1", "cd" * 32, {"kind": "line", "line": 7}) != base
-    assert ids.event_id("CASE-1", SHA, {"kind": "line", "line": 8}) != base
+def test_event_id_differs_per_case_source_file_content_and_record() -> None:
+    line7 = {"kind": "line", "line": 7}
+    base = ids.event_id("CASE-1", "SF-1", SHA, line7)
+    assert ids.event_id("CASE-2", "SF-1", SHA, line7) != base
+    assert ids.event_id("CASE-1", "SF-2", SHA, line7) != base
+    assert ids.event_id("CASE-1", "SF-1", "cd" * 32, line7) != base
+    assert ids.event_id("CASE-1", "SF-1", SHA, {"kind": "line", "line": 8}) != base
 
 
 def test_prefixed_ids() -> None:
@@ -43,3 +45,14 @@ def test_utc_storage_round_trip_and_ordering() -> None:
 def test_naive_datetime_is_refused() -> None:
     with pytest.raises(ValueError, match="naive"):
         to_utc_storage(datetime(2026, 10, 29, 12, 0, 0))
+
+
+def test_event_schema_doc_is_current() -> None:
+    from pathlib import Path
+
+    from mizar.events.schema_docs import render
+
+    doc = Path(__file__).resolve().parents[2] / "docs" / "event-schema.md"
+    assert doc.read_text() == render(), (
+        "run: python -m mizar.events.schema_docs > docs/event-schema.md"
+    )
