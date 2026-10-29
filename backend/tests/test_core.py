@@ -24,10 +24,8 @@ def test_event_id_differs_per_case_file_and_record() -> None:
 def test_prefixed_ids() -> None:
     assert ids.new_case_id().startswith("CASE-")
     assert ids.new_run_id().startswith("RUN-")
-    assert ids.source_file_id(SHA, 2) == "SF-abababababababab-2"
+    assert ids.new_source_file_id().startswith("SF-")
     assert ids.finding_id("RUN-X", 3) == "RUN-X-F0003"
-    with pytest.raises(ValueError):
-        ids.source_file_id("abc", 1)
     with pytest.raises(ValueError):
         ids.finding_id("RUN-X", 0)
 

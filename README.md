@@ -3,9 +3,10 @@
 Local log analysis and investigation tool for SOC analysts, incident
 responders, and digital forensic investigators.
 
-> Status: **Phase 0 (foundation)**. Upload, parsing, detection, UI, and
-> reporting are not implemented yet. See [docs/DESIGN.md](docs/DESIGN.md) for
-> the full design and delivery plan.
+> Status: **Phase 1** — cases, evidence upload with hashing, archive
+> expansion, format detection and the background worker are implemented
+> (API only). Parsing, detection rules, UI and reporting come in later phases.
+> See [docs/DESIGN.md](docs/DESIGN.md) for the design and delivery plan.
 
 ## Requirements
 
@@ -23,7 +24,8 @@ python3 -m venv .venv
 ## Run
 
 ```bash
-backend/.venv/bin/mizar serve      # http://127.0.0.1:8730
+backend/.venv/bin/mizar serve      # http://127.0.0.1:8730, starts the worker too
+backend/.venv/bin/mizar worker     # background worker only (normally started by serve)
 backend/.venv/bin/mizar migrate    # apply database migrations only
 ```
 

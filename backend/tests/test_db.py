@@ -11,7 +11,9 @@ from mizar.db.tables import cases, jobs, metadata
 
 
 def test_migrations_create_schema_at_head(engine: Engine) -> None:
-    assert {"cases", "jobs", "alembic_version"} <= set(inspect(engine).get_table_names())
+    assert {"cases", "jobs", "source_files", "alembic_version"} <= set(
+        inspect(engine).get_table_names()
+    )
     with engine.connect() as conn:
         assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == (
             head_revision()

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | **Approved for implementation** |
-| Document version | 0.2.0 |
+| Document version | 0.3.0 |
 | Licence | Apache-2.0 |
 | Date | 2026-10-29 |
 | Event schema version | 1.0.0 (proposed) |
@@ -83,6 +83,10 @@ investigators. **Secondary:** CTF participants and learners.
 | D14 | Report branding | Neutral; small "MIZAR" watermark in the page corners | Confirmed in review |
 | D15 | Case deletion | Deletes everything belonging to the case (DB rows, exports, evidence blobs) after typed-name confirmation | Blobs shared with another case (same content hash) are kept until no case references them |
 | D16 | Licence | Apache-2.0 | Dependencies must be Apache-2.0-compatible (no GPL in the shipped backend/frontend) |
+| D17 | Archive nesting depth | 3 container levels (was 2) | A `.tar.gz` collection holding rotated `auth.log.2.gz` files is three levels and is common |
+| D18 | Upload transport | One raw-body request per file instead of multipart | Single-pass hashing straight into the evidence store; no second copy in a temp directory; early size-limit rejection; per-file errors. The UI sends several requests for a multi-file selection |
+| D19 | Store concurrency | A cross-process `flock` on the evidence store is held while a blob is committed together with its database row, and while deletion checks references | Prevents a blob being deleted between being stored and being referenced (API and worker are separate processes) |
+| D20 | Truncated compressed data | Recovered bytes are kept as the member, with an `ARCHIVE_TRUNCATED` warning | Partial logs from a damaged rotation file are still evidence |
 
 ---
 
@@ -194,7 +198,7 @@ All IDs are stable and deterministic where the inputs permit it:
 | ID | Format | Derivation |
 |---|---|---|
 | `case_id` | `CASE-<ULID>` | Random at creation |
-| `source_file_id` | `SF-<first 16 hex of sha256>-<n>` | Content hash plus a per-case sequence, so re-uploading the same bytes in the same case is detected and flagged rather than silently merged |
+| `source_file_id` | `SF-<ULID>` | Random. Each file also has a per-case display `sequence` (#1, #2, …). Re-uploading identical bytes into the same case creates a new record flagged `DUPLICATE_UPLOAD`. Event IDs do not depend on this ID (they use the content hash) |
 | `event_id` | UUIDv5(`MIZAR_NS`, `case_id \| source_file_sha256 \| record_locator`) | Same file in the same case always yields the same event IDs |
 | `run_id` | `RUN-<ULID>` | Random per run |
 | `finding_id` | `<run_id>-F<4-digit sequence>` | Sequence assigned after deterministic sort (§12.2) |
@@ -792,7 +796,7 @@ Uploaded logs are attacker-influenced input.
 | Markup injection in PDF | All text passes through an escaper before ReportLab `Paragraph`. No external resource loading |
 | CSV formula injection | §13.2 |
 | Zip-slip / path traversal | Member names normalized; absolute paths, `..`, symlinks, and device files rejected. Members are stored by hash, never by their names |
-| Archive bombs | Limits on total uncompressed size (default 20 GiB per case), compression ratio (100:1 per member, configurable), member count (10,000), and nesting depth (2) |
+| Archive bombs | Limits on total uncompressed size (default 20 GiB per case), compression ratio (100:1 per member once it exceeds 10 MiB, configurable), member count (10,000), and nesting depth (3) |
 | ReDoS | Rule regexes use `google-re2` (linear-time) where available, else a timeout. Parser regexes reviewed and anchored. Line length cap |
 | Resource exhaustion | Per-file and per-case size limits, streaming everywhere, bounded batch sizes, disk-space pre-check |
 | CSRF / drive-by from other websites | Binds `127.0.0.1` only. `Host` header allowlist (prevents DNS rebinding). Origin check plus a random per-launch API token injected into the SPA, required on state-changing requests |
@@ -807,10 +811,13 @@ Uploaded logs are attacker-influenced input.
 ```
 POST   /api/cases                          create case
 GET    /api/cases | /api/cases/{id}
-POST   /api/cases/{id}/files               multipart upload (multiple files), hints per file
+POST   /api/cases/{id}/files?filename=…    raw body, one file per request; optional timezone_hint, year_hint, format_override
 GET    /api/cases/{id}/files               source files + parse results
 POST   /api/cases/{id}/files/{fid}/reparse format override / new hints → new ParseResult
-POST   /api/cases/{id}/verify              re-hash all evidence
+POST   /api/cases/{id}/verify              re-hash all evidence (background job)
+DELETE /api/cases/{id}                     body {"confirm_name": "<exact case name>"}
+GET    /api/cases/{id}/jobs | POST /api/jobs/{jid}/cancel
+GET    /api/formats                        format IDs for the override selector
 GET    /api/cases/{id}/events              filter, paginate (cursor), search
 GET    /api/events/{eid}                   normalized + raw record + links + groups
 GET    /api/cases/{id}/timeline            buckets + page of events

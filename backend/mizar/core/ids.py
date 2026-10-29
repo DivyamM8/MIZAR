@@ -33,12 +33,8 @@ def new_request_id() -> str:
     return f"req_{ULID()}"
 
 
-def source_file_id(sha256_hex: str, sequence: int) -> str:
-    if len(sha256_hex) != 64:
-        raise ValueError("sha256_hex must be 64 hex characters")
-    if sequence < 1:
-        raise ValueError("sequence starts at 1")
-    return f"SF-{sha256_hex[:16].lower()}-{sequence}"
+def new_source_file_id() -> str:
+    return f"SF-{ULID()}"
 
 
 def canonical_locator(locator: Mapping[str, Any]) -> str:

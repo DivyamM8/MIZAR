@@ -9,8 +9,10 @@ from sqlalchemy import Engine, text
 
 from mizar.api.errors import install_error_handlers
 from mizar.api.middleware import LocalGuardMiddleware
+from mizar.api.routes import cases, files, jobs
 from mizar.core.config import Settings
 from mizar.db.engine import head_revision
+from mizar.evidence.store import EvidenceStore
 from mizar.versions import EVENT_SCHEMA_VERSION, MIZAR_VERSION, RULE_FORMAT_VERSION
 
 
@@ -25,6 +27,9 @@ def create_app(settings: Settings, engine: Engine, api_token: str) -> FastAPI:
     )
     app.state.settings = settings
     app.state.engine = engine
+    app.state.store = EvidenceStore(
+        settings.evidence_dir, settings.staging_dir, settings.min_free_disk_bytes
+    )
 
     install_error_handlers(app)
     app.add_middleware(
@@ -33,6 +38,10 @@ def create_app(settings: Settings, engine: Engine, api_token: str) -> FastAPI:
         allowed_origins=settings.allowed_origins,
         api_token=api_token,
     )
+
+    app.include_router(cases.router)
+    app.include_router(files.router)
+    app.include_router(jobs.router)
 
     @app.get("/api/health")
     def health(request: Request) -> dict[str, Any]:

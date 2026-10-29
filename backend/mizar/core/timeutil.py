@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 UTC_STORAGE_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
@@ -20,3 +21,12 @@ def to_utc_storage(value: datetime) -> str:
 
 def from_utc_storage(text: str) -> datetime:
     return datetime.strptime(text, UTC_STORAGE_FORMAT).replace(tzinfo=UTC)
+
+
+def validate_timezone_name(name: str) -> str:
+    """Return name if it is a known IANA timezone, else raise ValueError."""
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"unknown IANA timezone {name!r}") from exc
+    return name

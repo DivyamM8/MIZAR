@@ -23,6 +23,7 @@ dependencies = [
     "evtx>=0.8",
     "reportlab>=4.2",
     "google-re2>=1.1",
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

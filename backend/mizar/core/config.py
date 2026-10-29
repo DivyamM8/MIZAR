@@ -33,8 +33,14 @@ class Settings(BaseSettings):
     max_file_bytes: int = Field(default=2 * GIB, gt=0)
     max_case_uncompressed_bytes: int = Field(default=20 * GIB, gt=0)
     max_archive_members: int = Field(default=10_000, gt=0)
-    max_archive_depth: int = Field(default=2, ge=0)
+    # Container nesting levels expanded, e.g. logs.tar.gz -> auth.log.2.gz is 3.
+    max_archive_depth: int = Field(default=3, ge=0)
     max_compression_ratio: int = Field(default=100, gt=0)
+    # The ratio check applies once a member has produced this many bytes, because
+    # small, repetitive log files legitimately compress far beyond 100:1.
+    compression_ratio_floor_bytes: int = Field(default=10 * 1024**2, ge=0)
+    # Uploads and extraction stop before free disk space drops below this.
+    min_free_disk_bytes: int = Field(default=1 * GIB, ge=0)
 
     log_level: str = "INFO"
 
