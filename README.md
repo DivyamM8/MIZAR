@@ -3,11 +3,12 @@
 Local log analysis and investigation tool for SOC analysts, incident
 responders, and digital forensic investigators.
 
-> Status: **Phase 5**. Evidence intake, parsing into the normalized event
+> Status: **Phase 6**. Evidence intake, parsing into the normalized event
 > schema, 32 detection rules with reproducible analysis runs, a correlated
-> timeline with entities and sessions, and the web UI are implemented. PDF and
-> JSON/CSV reports come next. See [docs/DESIGN.md](docs/DESIGN.md),
-> [docs/event-schema.md](docs/event-schema.md) and [docs/rules.md](docs/rules.md).
+> timeline with entities and sessions, the web UI, and PDF, JSON and CSV
+> reports are implemented. Hardening and packaging come next. See
+> [docs/DESIGN.md](docs/DESIGN.md), [docs/event-schema.md](docs/event-schema.md)
+> and [docs/rules.md](docs/rules.md).
 
 ## Requirements
 
@@ -41,6 +42,11 @@ backend/.venv/bin/mizar migrate    # apply database migrations only
 
 Open http://127.0.0.1:8730 in a browser. MIZAR listens on loopback only. It refuses to start with a non-loopback
 `MIZAR_HOST`.
+
+Reports: after an analysis run, open the case's **Reports** tab to produce a PDF
+investigation report (Draft or Final), a JSON export with the full run
+manifest and evidence records, or a CSV bundle for spreadsheets. Each export
+lists its SHA-256 so the handed-over file can be identified later.
 
 ### Configuration
 

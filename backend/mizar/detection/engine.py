@@ -575,8 +575,10 @@ def build_finding(candidate: Candidate, params: dict[str, Any]) -> dict[str, Any
         "entities": entities,
         "observed_evidence": observed,
         "interpretation": _render(rule.spec["interpretation"], context),
-        "alternative_explanations": rule.spec["alternative_explanations"],
-        "verification_steps": rule.spec["verification_steps"],
+        "alternative_explanations": [
+            _render(text, context) for text in rule.spec["alternative_explanations"]
+        ],
+        "verification_steps": [_render(text, context) for text in rule.spec["verification_steps"]],
         "event_count": candidate.event_count,
         "evidence": [(e["event_id"], role) for e, role in candidate.events],
         "evidence_files": sorted(files),

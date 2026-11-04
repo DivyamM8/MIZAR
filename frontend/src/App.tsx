@@ -8,6 +8,7 @@ import { EventsPage } from "./pages/EventsPage";
 import { EvidencePage } from "./pages/EvidencePage";
 import { FindingDetail } from "./pages/FindingDetail";
 import { FindingsPage } from "./pages/FindingsPage";
+import { ReportsPage } from "./pages/ReportsPage";
 import { RulesPage } from "./pages/RulesPage";
 import { RunDetailPage, RunsPage } from "./pages/RunsPage";
 import { TimelinePage } from "./pages/TimelinePage";
@@ -42,6 +43,7 @@ export const routes = [
           { path: "sessions/:groupId", element: <SessionDetailPage /> },
           { path: "runs", element: <RunsPage /> },
           { path: "runs/:runId", element: <RunDetailPage /> },
+          { path: "reports", element: <ReportsPage /> },
         ],
       },
       { path: "*", element: <NotFound /> },

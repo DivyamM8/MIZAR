@@ -339,3 +339,39 @@ export interface RelatedEvents {
   note: string;
   items: EventRow[];
 }
+
+export type ExportFormat = "pdf" | "json" | "csv";
+
+export interface ExportOptions {
+  statuses: FindingStatus[];
+  min_severity: Severity;
+  marking: "draft" | "final";
+  evidence_limit: number;
+  all_events: boolean;
+}
+
+export interface Export {
+  export_id: string;
+  case_id: string;
+  run_id: string;
+  job_id: string | null;
+  format: ExportFormat;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  options: ExportOptions;
+  requested_by: string;
+  created_at: string;
+  finished_at: string | null;
+  media_type: string | null;
+  size_bytes: number | null;
+  sha256: string | null;
+  summary: {
+    findings?: number;
+    events?: number;
+    all_events?: number;
+    pages?: number;
+    generated_at?: string;
+    findings_excluded?: { by_status: number; by_severity: number };
+  } | null;
+  error_code: string | null;
+  error_message: string | null;
+}

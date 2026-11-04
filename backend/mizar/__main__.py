@@ -23,6 +23,8 @@ log = logging.getLogger("mizar")
 
 _WORKER_RESTART_DELAY = 2.0
 _WORKER_STOP_TIMEOUT = 15.0
+# Set by `mizar serve` for its worker: the worker stops if that process goes away.
+_SUPERVISOR_ENV = "MIZAR_SUPERVISOR_PID"
 
 
 def _load_settings() -> Settings:
@@ -66,8 +68,21 @@ def cmd_worker(settings: Settings) -> int:
 
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
+    supervisor = os.environ.get(_SUPERVISOR_ENV)
+    if supervisor:
+        threading.Thread(
+            target=_stop_when_orphaned, args=(int(supervisor), stop), daemon=True
+        ).start()
     run_worker(WorkerDeps(settings, engine, _store(settings)), stop)
     return 0
+
+
+def _stop_when_orphaned(supervisor_pid: int, stop: threading.Event) -> None:
+    """Stop the worker if `mizar serve` died without stopping it (e.g. killed with SIGKILL)."""
+    while not stop.wait(1.0):
+        if os.getppid() != supervisor_pid:
+            log.warning("mizar serve is no longer running; worker stopping")
+            stop.set()
 
 
 class _WorkerSupervisor:
@@ -83,7 +98,10 @@ class _WorkerSupervisor:
 
     def _run(self) -> None:
         while not self._stopping.is_set():
-            self._process = subprocess.Popen([sys.executable, "-m", "mizar", "worker"])
+            self._process = subprocess.Popen(
+                [sys.executable, "-m", "mizar", "worker"],
+                env={**os.environ, _SUPERVISOR_ENV: str(os.getpid())},
+            )
             code = self._process.wait()
             if self._stopping.is_set():
                 return
@@ -122,6 +140,13 @@ def cmd_serve(settings: Settings) -> int:
     app = create_app(settings, engine, api_token)
     supervisor = _WorkerSupervisor()
     supervisor.start()
+
+    # uvicorn re-raises a SIGTERM it handled once it has shut down; without this the default
+    # action would end the process before the worker is stopped below.
+    def exit_on_sigterm(_signum: int, _frame: FrameType | None) -> None:
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, exit_on_sigterm)
     log.info("MIZAR listening on http://%s:%d", settings.host, settings.port)
     try:
         uvicorn.run(app, host=settings.host, port=settings.port, log_config=None)

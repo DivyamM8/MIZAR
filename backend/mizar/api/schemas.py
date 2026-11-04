@@ -523,3 +523,48 @@ class RelatedEvents(BaseModel):
     basis: dict[str, Any]
     note: str
     items: list[SessionEvent]
+
+
+FindingStatusName = Literal["open", "investigating", "confirmed", "false_positive", "resolved"]
+SeverityName = Literal["informational", "low", "medium", "high", "critical"]
+
+
+class ExportCreate(_Input):
+    format: Literal["pdf", "json", "csv"]
+    # Findings with these statuses are included; omitted means all statuses.
+    statuses: list[FindingStatusName] | None = Field(default=None, min_length=1)
+    min_severity: SeverityName = "informational"
+    marking: Literal["draft", "final"] = "draft"
+    # PDF: supporting events shown per finding (the JSON export always has all of them).
+    evidence_limit: int = Field(default=10, ge=1, le=500)
+    # JSON / CSV: every event of the run's input files, not only finding evidence.
+    all_events: bool = False
+
+
+class ExportStarted(BaseModel):
+    export_id: str
+    job_id: str
+
+
+class ExportOut(BaseModel):
+    export_id: str
+    case_id: str
+    run_id: str
+    job_id: str | None
+    format: str
+    status: str
+    options: dict[str, Any]
+    requested_by: str
+    created_at: datetime
+    finished_at: datetime | None
+    media_type: str | None
+    size_bytes: int | None
+    sha256: str | None
+    summary: dict[str, Any] | None
+    error_code: str | None
+    error_message: str | None
+
+
+class ExportDeleted(BaseModel):
+    export_id: str
+    deleted: bool

@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "mizar"
 version = "0.1.0"
 description = "Local log analysis and investigation tool for security investigators"
-readme = "../README.md"
 license = "Apache-2.0"
 requires-python = ">=3.13"
 dependencies = [
@@ -35,6 +34,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-PyYAML",
+    "pypdf>=5",
 ]
 
 [project.scripts]

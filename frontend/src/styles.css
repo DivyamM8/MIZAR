@@ -226,3 +226,13 @@ pre.json, pre.raw {
 .histogram g.clickable { cursor: zoom-in; }
 .histogram g.clickable:hover .bar { fill: var(--accent); }
 .lane-toggle { margin-top: 0.5rem; }
+
+/* Reports */
+a.button { display: inline-block; font: inherit; padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); text-decoration: none; }
+a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.6rem; border: none; padding: 0; margin: 0; }
+.choice { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.5rem; align-items: start; padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.choice input { grid-row: span 2; margin-top: 0.2rem; }
+.choice.selected { border-color: var(--accent); }
+.form .wide { grid-column: 1 / -1; }
+.form label.inline-check, label.inline-check { flex-direction: row; align-items: center; color: var(--text); font-size: 13px; }

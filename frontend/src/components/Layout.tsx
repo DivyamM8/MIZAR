@@ -14,6 +14,7 @@ const CASE_TABS: [string, string][] = [
   ["entities", "Entities"],
   ["sessions", "Sessions"],
   ["runs", "Runs"],
+  ["reports", "Reports"],
 ];
 
 function useTheme(): [string, () => void] {

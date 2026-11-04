@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Phase 6 — reports and exports (2026-11-04)
+- PDF investigation report: cover with Draft/Final marking and run hashes,
+  executive summary generated from the data, scope and evidence with hashes
+  and parse statistics, methodology, one section per finding with every field
+  and its supporting events, timeline, entities, limitations and the run
+  manifest. Footer with case, run and page numbers; a small MIZAR mark in the
+  page corners.
+- JSON export with the full run manifest, findings and referenced events with
+  their original records (hash-checked); optional NDJSON of all events.
+- CSV export (ZIP) with findings, events and source files, protected against
+  spreadsheet formula injection.
+- Filters by status and minimum severity; exports run as background jobs,
+  are written atomically, and record their size and SHA-256.
+- Reports page in the UI: choose a run, format and filters; download, cancel
+  or delete exports.
+- Fixed: alternative explanations and verification steps now have their
+  placeholders filled in (they showed `{source_ip}` and similar).
+- Fixed: stopping `mizar serve` with SIGTERM left the worker process running;
+  the worker now also stops if the server is killed.
+
 ### Phase 5 — web UI (2026-11-04)
 - React + TypeScript web UI served by `mizar serve`: cases (create, edit,
   delete with typed confirmation), case overview, evidence (multi-file upload

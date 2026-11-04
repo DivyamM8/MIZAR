@@ -10,10 +10,12 @@ from mizar.evidence import service as evidence
 from mizar.ingest.parse import PARSE_JOB, parse_file_job
 from mizar.ingest.service import ingest_file_job
 from mizar.jobs.worker import JobContext, register
+from mizar.reporting.service import EXPORT_JOB, render_export_job
 
 register(evidence.INGEST_JOB)(ingest_file_job)
 register(PARSE_JOB)(parse_file_job)
 register(ANALYSIS_JOB)(analysis_run_job)
+register(EXPORT_JOB)(render_export_job)
 
 
 @register(INDEX_JOB)

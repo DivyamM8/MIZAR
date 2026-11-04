@@ -77,7 +77,7 @@ def _conditions(case_id: str, flt: EventFilter) -> list[Any]:
     return conditions
 
 
-def _with_parse_constants(conn: Connection, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def with_parse_constants(conn: Connection, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Add the per-parse fields of the event schema (stored once per parse result)."""
     ids = {row["parse_result_id"] for row in rows}
     if not ids:
@@ -117,7 +117,7 @@ def list_events(
             .limit(limit)
             .offset(max(offset, 0))
         ).mappings()
-        return _with_parse_constants(conn, [dict(r) for r in rows]), int(total)
+        return with_parse_constants(conn, [dict(r) for r in rows]), int(total)
 
 
 def get_event(engine: Engine, store: EvidenceStore, event_id: str) -> dict[str, Any]:
@@ -127,17 +127,8 @@ def get_event(engine: Engine, store: EvidenceStore, event_id: str) -> dict[str, 
             raise MizarError(
                 ErrorCode.NOT_FOUND, "Event not found.", details={"event_id": event_id}
             )
-        result = _with_parse_constants(conn, [dict(row)])[0]
-        stored = (
-            conn.execute(select(raw_records).where(raw_records.c.event_id == event_id))
-            .mappings()
-            .first()
-        )
-        sha256 = conn.execute(
-            select(source_files.c.blob_sha256).where(
-                source_files.c.source_file_id == row["source_file_id"]
-            )
-        ).scalar_one()
+        result = with_parse_constants(conn, [dict(row)])[0]
+        result["raw_record"] = read_raw_record(conn, store, result)
         groups = conn.execute(
             select(event_groups.c.group_id, event_groups.c.group_type, event_groups.c.member_count)
             .join(event_group_members, event_group_members.c.group_id == event_groups.c.group_id)
@@ -162,11 +153,26 @@ def get_event(engine: Engine, store: EvidenceStore, event_id: str) -> dict[str, 
                     ],
                 }
             )
-    if stored is not None:
-        result["raw_record"] = _stored_view(stored)
-    else:
-        result["raw_record"] = _evidence_view(store, sha256, result)
     return result
+
+
+def read_raw_record(
+    conn: Connection, store: EvidenceStore, event: dict[str, Any]
+) -> dict[str, Any]:
+    """The original record: the stored copy, or read back from evidence and hash-checked."""
+    stored = (
+        conn.execute(select(raw_records).where(raw_records.c.event_id == event["event_id"]))
+        .mappings()
+        .first()
+    )
+    if stored is not None:
+        return _stored_view(stored)
+    sha256 = conn.execute(
+        select(source_files.c.blob_sha256).where(
+            source_files.c.source_file_id == event["source_file_id"]
+        )
+    ).scalar_one()
+    return _evidence_view(store, sha256, event)
 
 
 def _decode(data: bytes, encoding: str) -> tuple[str, bool]:

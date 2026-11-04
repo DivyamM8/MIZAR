@@ -25,6 +25,10 @@ def new_run_id() -> str:
     return f"RUN-{ULID()}"
 
 
+def new_export_id() -> str:
+    return f"EXP-{ULID()}"
+
+
 def new_job_id() -> str:
     return f"JOB-{ULID()}"
 

@@ -176,6 +176,8 @@ def test_finding_detail_links_evidence(api: TestClient, run_jobs: RunJobs) -> No
     assert detail["evidence_events"][-1]["username"] == "root"
     assert detail["observed_evidence"]["failures_count"] == 25
     assert detail["verification_steps"] and detail["alternative_explanations"]
+    texts = [*detail["verification_steps"], *detail["alternative_explanations"]]
+    assert not [t for t in texts if "{" in t], "placeholders must be filled in"
     assert "consistent with" in detail["interpretation"]
     page = api.get(f"/api/findings/{sequence['finding_id']}", params={"offset": 20}).json()
     assert len(page["evidence_events"]) == 6

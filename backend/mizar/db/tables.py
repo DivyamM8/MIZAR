@@ -439,3 +439,39 @@ event_links = Table(
     Index(None, "from_event_id"),
     Index(None, "to_event_id"),
 )
+
+EXPORT_FORMATS = ("pdf", "json", "csv")
+EXPORT_STATUSES = ("queued", "running", "succeeded", "failed", "cancelled")
+
+exports = Table(
+    "exports",
+    metadata,
+    Column("export_id", String(40), primary_key=True),
+    Column("case_id", String(40), ForeignKey("cases.case_id", ondelete="CASCADE"), nullable=False),
+    Column(
+        "run_id", String(40), ForeignKey("analysis_runs.run_id", ondelete="CASCADE"), nullable=False
+    ),
+    Column("job_id", String(40)),
+    Column("format", String(8), nullable=False),
+    Column("status", String(16), nullable=False),
+    # Filters and presentation choices (DESIGN.md §13): statuses, min severity, marking, ...
+    Column("options", JSON, nullable=False),
+    Column("requested_by", String(200), nullable=False),
+    Column("created_at", UTCDateTime(), nullable=False),
+    Column("finished_at", UTCDateTime()),
+    # Set when the file is complete: name inside exports/<case_id>/, size and SHA-256.
+    Column("file_name", String(80)),
+    Column("media_type", String(40)),
+    Column("size_bytes", Integer),
+    Column("sha256", String(64)),
+    # Counts of what the export contains, for the list view.
+    Column("summary", JSON),
+    Column("error_code", String(64)),
+    Column("error_message", Text),
+    CheckConstraint("format IN ('pdf', 'json', 'csv')", name="format"),
+    CheckConstraint(
+        "status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')", name="status"
+    ),
+    Index(None, "run_id", "created_at"),
+    Index(None, "case_id"),
+)

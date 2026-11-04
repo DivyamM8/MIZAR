@@ -189,7 +189,13 @@ export function RunDetailPage() {
   const results = r.results ?? {};
   return (
     <div className="stack">
-      <Section title={`Run ${r.run_id}`} actions={<Link to={`/cases/${encodeURIComponent(caseId)}/findings?run=${r.run_id}`}>Findings of this run</Link>}>
+      <Section title={`Run ${r.run_id}`} actions={
+          <span className="row gap">
+            <Link to={`/cases/${encodeURIComponent(caseId)}/findings?run=${r.run_id}`}>Findings of this run</Link>
+            <Link to={`/cases/${encodeURIComponent(caseId)}/reports?run=${r.run_id}`}>Reports</Link>
+          </span>
+        }
+      >
         <KeyValue
           rows={[
             ["Status", <StatusBadge key="s" status={r.status} />],

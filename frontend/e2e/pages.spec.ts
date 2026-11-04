@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, type Page, test } from "@playwright/test";
 
 // Expects a server seeded by e2e/seed.py; MIZAR_CASE names the seeded case.
@@ -54,6 +56,7 @@ test("every page renders without console errors", async ({ page }) => {
   await page.locator("table a[href*='/runs/']").first().click();
   await expect(page.locator("text=Versions, rules and parameters")).toBeVisible();
   await page.screenshot({ path: `${shots}/15-run.png`, fullPage: true });
+  await visit(page, `${c}/reports`, "18-reports", "text=New export");
   await visit(page, "/rules", "16-rules", "text=Detection rules");
   await page.emulateMedia({ colorScheme: "dark" });
   await visit(page, `${c}/findings`, "17-findings-dark", "text=Sorted by severity");
@@ -69,5 +72,31 @@ test("analyst can change a finding's status", async ({ page }) => {
   await page.locator("text=Save review").click();
   await expect(page.locator("text=Saved.")).toBeVisible();
   await expect(page.locator(".badge", { hasText: "investigating" }).first()).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
+test("analyst can produce and download reports", async ({ page }) => {
+  const problems = watchConsole(page);
+  await page.goto(`/cases/${caseId}/reports`);
+  await expect(page.locator("text=New export")).toBeVisible();
+  const downloads: [string, string][] = [
+    ["pdf", "%PDF-"],
+    ["csv", "PK"],
+  ];
+  for (const [format, magic] of downloads) {
+    await page.locator(`input[name=format][value=${format}]`).check();
+    const rowsBefore = await page.locator("tbody tr").count();
+    await page.locator("text=Create export").click();
+    await expect(page.locator("tbody tr")).toHaveCount(rowsBefore + 1);
+    const link = page.locator("tbody tr").first().locator("a", { hasText: "Download" });
+    await expect(link).toBeVisible({ timeout: 30_000 });
+    const [download] = await Promise.all([page.waitForEvent("download"), link.click()]);
+    const file = await download.path();
+    const bytes = await readFile(file);
+    expect(bytes.subarray(0, magic.length).toString("latin1")).toBe(magic);
+    expect(download.suggestedFilename()).toMatch(new RegExp(`_${format}_\\d{8}T\\d{6}Z\\.(pdf|zip)$`));
+  }
+  await page.waitForLoadState("networkidle");
+  await page.screenshot({ path: `${shots}/19-reports-done.png`, fullPage: true });
   expect(problems).toEqual([]);
 });

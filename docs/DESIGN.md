@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | **Approved for implementation** |
-| Document version | 0.7.0 |
+| Document version | 0.8.0 |
 | Licence | Apache-2.0 |
 | Date | 2026-10-29 |
 | Event schema version | 1.0.0 (proposed) |
@@ -106,6 +106,11 @@ investigators. **Secondary:** CTF participants and learners.
 | D37 | UI dependencies | Runtime: React, React DOM, React Router only (all MIT). Data fetching, histogram (SVG) and styles are written in the project | Small supply-chain surface for a forensic tool; no CDN, no UI or chart libraries |
 | D38 | Time display | The UI shows every time in UTC with an explicit `Z`, never in the browser's zone, plus the original timestamp text and its time basis | Investigators compare times across sources and reports |
 | D39 | UI checks | TypeScript strict type check, Vitest unit tests, and a Playwright tour driving installed Google Chrome over every page against a seeded server, failing on any console error or 5xx; screenshots are reviewed | ESLint is not used; the strict compiler settings cover unused code and unsafe indexing |
+| D40 | PDF text | Built-in Helvetica/Courier only (no bundled fonts). Characters outside cp1252 are drawn as `\u{NNNN}` and control characters as `\xNN`; every string is XML-escaped before it reaches a ReportLab Paragraph | Nothing is dropped silently or shown as an empty box; the JSON export carries the exact text. No font files to license or load |
+| D41 | Report snapshot | An export reads everything inside one SQLite read transaction (WAL snapshot), at render time, not at request time; the generation time is printed | Status edits made while rendering cannot produce a report that disagrees with itself |
+| D42 | PDF size | Supporting events per finding default to 10 (1–500 selectable); the PDF timeline lists only the events shown in the findings section; full lists are in JSON/CSV | Measured on the demo case (31 findings): 86 pages with every linked event, 51 with the defaults; a port scan finding alone linked 344 near-identical rows |
+| D43 | Export files | Written as `exports/<case>/.<id>.partial`, fsynced, made read-only and renamed into place; SHA-256 and size recorded and shown; partial files removed on failure, cancellation, or when a crashed job is retried | `exports/` never holds a partial report (§14.1); analysts can record the hash of what they handed over |
+| D44 | Export layouts | JSON: `report.json` (format `mizar.report` 1.0.0) with case, run manifest and results, source files, findings and referenced events with their original records; with "all events", a ZIP adding `events.ndjson`. CSV: a ZIP of `findings.csv`, `events.csv`, `source_files.csv` (UTF-8 with BOM) and `export.json`; fixed member timestamps | One file per download; streaming writers keep memory flat (≈160 MiB at 200k events) |
 
 ---
 
@@ -791,19 +796,35 @@ run comparison.
 8. Limitations and assumptions.
 9. Appendix: run manifest.
 
-Export filters: include or exclude statuses (e.g. hide `false_positive`),
-minimum severity. Every page shows a footer with the case ID, run ID, and page
-number, and a small, low-contrast "MIZAR" watermark in the page corners (no
-other branding). The PDF metadata records the generator version.
+Export options: included statuses, minimum severity, Draft/Final marking,
+and supporting events shown per finding (D42). Every page shows a footer with
+the case ID, run ID and "Page X of Y", the marking at the top, and a small,
+low-contrast "MIZAR" in the four page corners (no other branding). The PDF
+metadata records the analyst as author and the generator version. Excluded
+findings are counted in the executive summary. Statuses and notes are those at
+generation time (D41). Only finished runs (`succeeded`,
+`succeeded_with_errors`) can be exported.
 
 ### 13.2 JSON and CSV
 
-- JSON: one document with case, run manifest, source files, findings (full),
-  and the referenced events (optionally all events, streamed as NDJSON for
-  large cases). It embeds `event_schema_version`.
-- CSV: `findings.csv`, `events.csv` (filtered view), `source_files.csv`.
-  Formula-injection protection: cells starting with `= + - @ \t \r` are
-  prefixed with `'`.
+- JSON: one document with case, run manifest, source files, findings (full,
+  with every linked event ID and role) and the referenced events, each with its
+  original record read back from evidence and checked against `record_hash`.
+  It embeds `export_format_version` and `event_schema_version`. Optionally all
+  events of the run's input files are added as `events.ndjson` in a ZIP (D44).
+- CSV: `findings.csv`, `events.csv` (finding evidence, or all events),
+  `source_files.csv`, plus `export.json` with the provenance header.
+  Formula-injection protection: text cells starting with `= + - @ \t \r` are
+  prefixed with `'`; numbers are written as numbers.
+- Events are written in the stable order of §12.2 (placed events by time,
+  then events without reliable time).
+
+### 13.3 Export lifecycle
+
+An export is a background job (`render_export`). Its record keeps the
+options, status, file name, media type, size and SHA-256. A failed render
+records `REPORT_RENDER_FAILED` without internal details and leaves no file
+(D43). Exports are deleted individually or with their case.
 
 ---
 
@@ -889,8 +910,11 @@ GET    /api/cases/{id}/runs | /api/runs/{rid}
 GET    /api/runs/{rid}/findings            sort/filter
 GET    /api/findings/{fid}
 PATCH  /api/findings/{fid}                 status, notes
-POST   /api/runs/{rid}/exports             {format: pdf|json|csv, filters}
-GET    /api/exports/{xid}                  download
+POST   /api/runs/{rid}/exports             {format, statuses, min_severity, marking, evidence_limit, all_events}
+GET    /api/runs/{rid}/exports             exports of a run
+GET    /api/exports/{xid}                  status, size, SHA-256
+GET    /api/exports/{xid}/download         the file (attachment)
+DELETE /api/exports/{xid}
 GET    /api/jobs/{jid}                     progress
 GET    /api/rules                          catalogue with versions and params
 ```
@@ -910,7 +934,7 @@ GET    /api/rules                          catalogue with versions and params
 | Events | Full-text and field search over normalized events; event drawer shows normalized fields, raw record, locator, links, groups |
 | Entities | Hosts, users, IPs, sessions with pivots |
 | Runs | Run history, manifest viewer, diff between two runs |
-| Export | PDF, JSON, CSV with filters |
+| Reports | Choose a finished run, format and filters; exports with status, size, SHA-256, download, cancel and delete |
 | Rules | Read-only rule catalogue with parameters and descriptions |
 
 Visual language: severity colors are always paired with a text label (never
@@ -959,8 +983,12 @@ survive a reload; the event drawer opens from any table via `?event=<id>`.
   **~48 s** (≈ 8 min per 10M events); the finding list returns in < 10 ms.
   Measured in Phase 4 (1M events): case index build ≈ 12–15 s, timeline page
   ≈ 5–30 ms at any depth, histogram ≈ 0.6 s, entity list ≈ 35 ms.
-- Tooling: pytest, ruff, mypy (strict on core packages), ESLint + TypeScript
-  strict, Vitest, Playwright for a few end-to-end flows.
+  Measured in Phase 6: the 31-finding demo report renders in < 1 s (51 PDF
+  pages); JSON and CSV exports with all events stream ≈ 30k events/s (200k
+  events in 6.5–7 s, ≈ 5.5 min per 10M) at a flat ≈ 160 MiB.
+- Tooling: pytest, ruff, mypy (strict on core packages), TypeScript strict
+  (no ESLint, D39), Vitest, Playwright for end-to-end flows; pypdf reads the
+  generated PDFs in tests.
 
 ---
 
