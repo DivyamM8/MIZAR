@@ -2,38 +2,67 @@
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime
 from typing import Any
 from xml.sax.saxutils import escape
+
+from mizar.reporting.fonts import FALLBACK_FONT, fallback_code_points
 
 # ReportLab's built-in fonts encode text as WinAnsi (cp1252).
 _PDF_ENCODING = "cp1252"
 # Spreadsheet programs evaluate cells starting with these as formulas (§13.2).
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+# Invisible or structural characters: always shown as escapes, because they can hide or
+# reorder text (e.g. U+202E RIGHT-TO-LEFT OVERRIDE in a file name).
+_ESCAPED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
+# ReportLab draws text left to right without reordering; right-to-left scripts would read
+# backwards, so they are escaped too.
+_RTL = frozenset({"R", "AL", "AN"})
+
+# (text, font): "base" (Helvetica, also used for escapes) or "fallback" (DejaVu Sans).
+Piece = tuple[str, str]
+
+
+def _kind(char: str) -> str:
+    if char in "\n\t":
+        return "base"
+    if unicodedata.category(char) in _ESCAPED_CATEGORIES:
+        return "escape"
+    try:
+        char.encode(_PDF_ENCODING)
+    except UnicodeEncodeError:
+        pass
+    else:
+        return "base"
+    if unicodedata.bidirectional(char) in _RTL:
+        return "escape"
+    return "fallback" if ord(char) in fallback_code_points() else "escape"
+
+
+def _escape(char: str) -> str:
+    code = ord(char)
+    return f"\\x{code:02x}" if code < 0x100 else f"\\u{{{code:04x}}}"
+
+
+def pieces(value: str) -> list[Piece]:
+    """Split text into runs for the base and the fallback font, with escapes applied."""
+    out: list[Piece] = []
+    for char in value:
+        kind = _kind(char)
+        text = _escape(char) if kind == "escape" else char
+        group = "base" if kind == "escape" else kind
+        if out and out[-1][1] == group:
+            out[-1] = (out[-1][0] + text, group)
+        else:
+            out.append((text, group))
+    return out
 
 
 def visible(value: str) -> str:
-    """Replace characters the PDF fonts cannot draw with visible escapes.
-
-    Control characters become \\xNN and characters outside cp1252 become \\u{NNNN},
-    so nothing is dropped silently or drawn as an empty box; the exact text is in
-    the JSON export.
-    """
-    out = []
-    for char in value:
-        code = ord(char)
-        if char in "\n\t":
-            out.append(char)
-        elif code < 0x20 or 0x7F <= code < 0xA0:
-            out.append(f"\\x{code:02x}")
-        else:
-            try:
-                char.encode(_PDF_ENCODING)
-            except UnicodeEncodeError:
-                out.append(f"\\u{{{code:04x}}}")
-            else:
-                out.append(char)
-    return "".join(out)
+    """The text as the PDF shows it: characters no font can draw (or that would hide
+    or reorder text) become \\xNN or \\u{NNNN}. The exact text is in the JSON export."""
+    return "".join(text for text, _ in pieces(value))
 
 
 def clip(value: str, limit: int) -> str:
@@ -47,7 +76,13 @@ def para(value: Any, limit: int | None = None) -> str:
     text = "" if value is None else str(value)
     if limit is not None:
         text = clip(text, limit)
-    return escape(visible(text)).replace("\n", "<br/>").replace("\t", "    ")
+    markup = []
+    for run, group in pieces(text):
+        escaped = escape(run).replace("\n", "<br/>").replace("\t", "    ")
+        markup.append(
+            f'<font name="{FALLBACK_FONT}">{escaped}</font>' if group == "fallback" else escaped
+        )
+    return "".join(markup)
 
 
 def utc(value: datetime | None) -> str:

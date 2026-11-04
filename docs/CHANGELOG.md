@@ -15,6 +15,8 @@
   spreadsheet formula injection.
 - Filters by status and minimum severity; exports run as background jobs,
   are written atomically, and record their size and SHA-256.
+- PDF reports draw Cyrillic, Greek and other non-Western-European text with a
+  bundled DejaVu Sans font; text it cannot show correctly stays escaped.
 - Reports page in the UI: choose a run, format and filters; download, cancel
   or delete exports.
 - Fixed: alternative explanations and verification steps now have their

@@ -2,3 +2,8 @@ MIZAR
 Copyright 2026 The MIZAR authors
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes the DejaVu Sans font (version 2.37), unmodified, in
+backend/mizar/reporting/fonts/. Fonts are (c) Bitstream (Bitstream Vera Fonts
+licence); DejaVu changes are in the public domain; glyphs imported from Arev
+fonts are (c) Tavmjong Bah. See backend/mizar/reporting/fonts/LICENSE-DejaVu.

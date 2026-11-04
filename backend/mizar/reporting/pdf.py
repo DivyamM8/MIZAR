@@ -747,8 +747,10 @@ def _limitations(data: ReportData) -> list[Flowable]:
         "each host's clock.",
         "Severity and confidence are rule-based estimates, explained per finding, and need "
         "analyst verification.",
-        "Characters the report fonts cannot draw are shown as \\u{NNNN} escapes and control "
-        "characters as \\xNN; the JSON export has the exact text.",
+        "Characters no report font can draw (for example Chinese, Japanese and Korean), "
+        "right-to-left scripts, which this PDF cannot lay out in reading order, and invisible "
+        "formatting characters are shown as \\u{NNNN} escapes, and control characters as "
+        "\\xNN; the JSON export has the exact text.",
         f"Long messages are shortened to {MESSAGE_LIMIT} characters and evidence lists to "
         f"{data.options['evidence_limit']} events per finding in this PDF.",
     ]

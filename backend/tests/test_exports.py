@@ -20,7 +20,10 @@ from .analysis_helpers import RunJobs, analyze, by_rule, new_case, upload
 
 T0 = datetime(2026, 10, 27, 8, 0, tzinfo=UTC)
 HINTS = {"timezone_hint": "UTC", "year_hint": 2026}
-HOSTILE_NOTE = '<b>bold</b><img src="file:///etc/passwd"/> &amp; =SUM(A1) При \x07'
+HOSTILE_NOTE = (
+    '<b>bold</b><img src="file:///etc/passwd"/> &amp; =SUM(A1) Привет '
+    "Grüße Łódź 中文 של invoice‮fdp.exe \x07"
+)
 
 
 def _auth_log() -> bytes:
@@ -107,8 +110,13 @@ def test_pdf_report(api: TestClient, run_jobs: RunJobs, settings: Settings) -> N
         assert finding["finding_id"] in text
     # Hostile analyst notes: markup shown literally, unsupported characters escaped.
     assert "<b>bold</b><img" in text.replace("\n", "")
-    assert "\\u{041f}\\u{0440}\\u{0438}" in text
-    assert "\\x07" in text
+    flat = text.replace("\n", "")
+    assert "\u041f\u0440\u0438\u0432\u0435\u0442" in flat  # Cyrillic drawn by the fallback font
+    assert "\u0141\u00f3d\u017a" in flat and "Gr\u00fc\u00dfe" in flat
+    assert "\\u{4e2d}\\u{6587}" in flat  # no glyphs: escaped
+    assert "\\u{05e9}\\u{05dc}" in flat  # right-to-left: escaped
+    assert "invoice\\u{202e}fdp.exe" in flat  # the override is made visible
+    assert "\\x07" in flat
     assert "srv01" in text and "203.0.113.7" in text
     meta = reader.metadata
     assert meta is not None and meta.creator == "MIZAR 0.1.0"
@@ -345,4 +353,6 @@ def test_pdf_text_escaping() -> None:
     assert para("a\nb") == "a<br/>b"
     assert visible("café €") == "café €"  # in cp1252
     assert visible("中\x00\x9b") == "\\u{4e2d}\\x00\\x9b"
+    assert visible("Ж Ω א a​b") == "Ж Ω \\u{05d0} a\\u{200b}b"
+    assert para("Жx") == '<font name="MizarFallback">Ж</font>x'
     assert para("x" * 10, limit=4) == "xxxx [... 6 more characters]"
