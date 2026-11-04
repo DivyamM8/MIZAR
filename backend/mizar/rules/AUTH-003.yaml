@@ -1,0 +1,53 @@
+id: AUTH-003
+version: 1.0.0
+status: stable
+title: Successful logon for {username} from {source_ip} after repeated failures
+description: >
+  A successful logon for {username} on {hostname} from {source_ip} was recorded after
+  {failures_count} failed attempts from the same address within {params.window}.
+attack: [T1110, T1078]
+type: sequence
+group_by: [source_ip, username, hostname]
+params:
+  min_failures: {type: integer, default: 5, minimum: 1, description: Failed attempts that must precede the success}
+  window: {type: duration, default: 1h, description: Maximum time from the counted failures to the success}
+sequence:
+  join: [source_ip]
+  window: window
+  first:
+    name: failures
+    min_count: min_failures
+    filter:
+      all:
+        - {field: event_type, op: in, value: [logon_failed, invalid_user, kerberos_preauth_failed]}
+  then:
+    name: success
+    filter:
+      all:
+        - {field: event_type, op: eq, value: logon}
+        - {field: event_outcome, op: eq, value: success}
+severity:
+  base: high
+  reason: If the failures were guessing, the success means the guessed credentials work.
+confidence:
+  base: medium
+  reason: Both the failures and the success are recorded, but a user who mistyped and then succeeded produces the same sequence.
+  modifiers:
+    - when: {count_gte: 20}
+      raise: 1
+      reason: Many failed attempts preceded the success.
+    - when: {any_event: {field: source_ip, op: cidr, value: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, fc00::/7, fe80::/10]}}
+      lower: 1
+      reason: The source address is internal, where mistyped passwords by staff are common.
+evidence_strength: direct
+interpretation: >
+  After {failures_count} failed attempts from {source_ip}, a successful logon for
+  {username} was recorded on {hostname}. This is consistent with a password that was
+  obtained by guessing; it is equally consistent with a legitimate user who mistyped first.
+alternative_explanations:
+  - The account owner mistyped the password several times, then entered it correctly.
+  - A script or service retried with an old password before its configuration was fixed.
+verification_steps:
+  - Ask the owner of {username} whether they logged on from {source_ip} at {last}.
+  - Review what the session did after the logon (processes, sudo, new accounts, file changes).
+  - Reset the credential if the logon cannot be explained, and check other hosts for the same account.

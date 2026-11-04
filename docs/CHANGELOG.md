@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Phase 3 — detection, findings, analysis runs (2026-11-04)
+- Rule engine with five rule types (match, threshold, sequence, first-seen,
+  correlation), a filter language with list-aware operators and RE2 regexes,
+  and SQL prefiltering on indexed columns.
+- 32 rules as YAML files validated against a JSON Schema and semantic checks
+  (parameters, fields, regexes, Critical only in correlations, wording rules);
+  generated catalogue in `docs/rules.md`.
+- Findings with severity, confidence and evidence strength kept separate,
+  each with its rationale, ATT&CK techniques, entities, observed evidence,
+  interpretation, alternative explanations, verification steps, linked
+  evidence events and source files with hashes.
+- Analysis runs: evidence re-verified first, manifest of inputs, parser and
+  rule versions, parameters and configuration, inputs fingerprint for
+  reproducibility, coverage gaps and rule notes; one failing rule does not stop
+  a run.
+- Analyst status and notes per finding, carried to later runs by fingerprint.
+- Ground-truth tests on all planted scenarios, including benign look-alikes,
+  plus positive and negative cases per rule.
+
 ### Phase 2 — event schema, parsers, events API (2026-10-29)
 - Normalized event schema v1.0.0 as JSON Schema (`mizar/schemas/event.v1.json`)
   with generated documentation (`docs/event-schema.md`).

@@ -44,7 +44,7 @@ mizar = "mizar.__main__:main"
 include = ["mizar*"]
 
 [tool.setuptools.package-data]
-mizar = ["db/migrations/*.py", "db/migrations/*.mako", "db/migrations/versions/*.py", "schemas/*.json"]
+mizar = ["db/migrations/*.py", "db/migrations/*.mako", "db/migrations/versions/*.py", "schemas/*.json", "rules/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -60,7 +60,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
 ignore = ["S101"]  # assert is fine in tests
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S104", "S105", "S106"]
+"tests/**" = ["S104", "S105", "S106", "E501"]  # log lines in test data are long
 
 [tool.mypy]
 python_version = "3.13"
@@ -69,5 +69,5 @@ packages = ["mizar"]
 exclude = ["mizar/db/migrations/"]
 
 [[tool.mypy.overrides]]
-module = ["evtx.*", "re2.*", "reportlab.*"]
+module = ["evtx.*", "re2.*", "reportlab.*", "jsonschema.*"]
 ignore_missing_imports = true

@@ -1,0 +1,27 @@
+id: PRIV-001
+version: 1.0.0
+status: stable
+title: sudo attempted by {username}, who is not in sudoers, on {hostname}
+description: "{username} tried to run commands with sudo {event_count} time(s) on {hostname} without being allowed to."
+attack: [T1548.003]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: sudo_not_in_sudoers}
+group_by: [username, hostname]
+severity:
+  base: medium
+  reason: An account trying to gain privileges it does not have may be misused.
+confidence:
+  base: medium
+  reason: The refusal is recorded explicitly; ordinary users also try sudo by mistake.
+evidence_strength: direct
+interpretation: >
+  The account {username} attempted to use sudo on {hostname} and was refused because it
+  is not allowed to. This can indicate an attempt to gain privileges with that account.
+alternative_explanations:
+  - A user who expected sudo rights they were never granted.
+  - A script copied from another system that calls sudo.
+verification_steps:
+  - Review the commands that were attempted (extra.command in the evidence).
+  - Ask the account owner about the attempts and check how they logged on.

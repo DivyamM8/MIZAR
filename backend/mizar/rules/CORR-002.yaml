@@ -1,0 +1,38 @@
+id: CORR-002
+version: 1.0.0
+status: stable
+title: Account or privilege changes on {hostname} soon after a suspicious logon
+description: >
+  A suspicious logon on {hostname} was followed within {params.window} by account,
+  service, task or privilege changes on the same host.
+attack: [T1136, T1098]
+type: correlation
+params:
+  window: {type: duration, default: 2h, description: Maximum time from the logon finding to the change}
+correlation:
+  join: hostname
+  window: window
+  first: {name: suspicious_logon, findings: [AUTH-003, AUTH-008]}
+  then: {name: change, findings: [PERS-001, PERS-002, PERS-003, PRIV-003]}
+severity:
+  base: high
+  reason: Changes that keep or expand access followed a logon of doubtful origin.
+  modifiers:
+    - when: {includes_rules: [AUTH-003, PRIV-003]}
+      set: critical
+      reason: A logon that followed repeated failures was followed by an addition to a privileged group on the same host.
+confidence:
+  base: medium
+  reason: The steps are linked by host and time only; they may belong to different sessions.
+evidence_strength: corroborated
+interpretation: >
+  On {hostname}, a logon flagged as suspicious was followed by changes that create or
+  extend access (see the chained findings). This sequence is consistent with an
+  unauthorized party establishing persistence; it may also be unrelated administration.
+alternative_explanations:
+  - An administrator logged on and made planned changes; the logon finding may itself be benign.
+  - Unrelated activity on a busy host that happens to fall in the same window.
+verification_steps:
+  - Check whether the session of the logon finding made the changes (logon/session IDs in the evidence).
+  - Look for change records approving the account, group, service or task changes.
+  - Treat the host as untrusted until the chain is explained.

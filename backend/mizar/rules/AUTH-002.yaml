@@ -1,0 +1,39 @@
+id: AUTH-002
+version: 1.0.0
+status: stable
+title: Possible password spraying from {source_ip} ({distinct.username} accounts)
+description: >
+  Failed logons for {distinct.username} different accounts came from {source_ip}
+  within {params.window} windows ({count} attempts in total).
+attack: [T1110.003]
+type: threshold
+filter:
+  all:
+    - {field: event_type, op: in, value: [logon_failed, invalid_user, kerberos_preauth_failed]}
+group_by: [source_ip]
+params:
+  min_accounts: {type: integer, default: 10, minimum: 2, description: Distinct account names needed within the window}
+  window: {type: duration, default: 30m, description: Sliding time window}
+threshold: {count: min_accounts, window: window, distinct: username, count_duplicates_once: true}
+severity:
+  base: medium
+  reason: Trying many accounts from one source is an attack attempt with unknown outcome.
+confidence:
+  base: medium
+  reason: Many distinct accounts from one address rarely come from ordinary users.
+  modifiers:
+    - when: {distinct_gte: {field: username, value: 25}}
+      raise: 1
+      reason: The number of distinct accounts is high.
+evidence_strength: direct
+interpretation: >
+  Failed logons for many different accounts ({distinct.username}) were recorded from
+  {source_ip} between {first} and {last}, consistent with password spraying.
+alternative_explanations:
+  - A shared terminal server or proxy where many users mistype passwords.
+  - An identity system or application synchronizing with an outdated credential list.
+  - An authorized security assessment.
+verification_steps:
+  - Check for successful logons from {source_ip} in the same period (AUTH-003).
+  - Identify what system owns {source_ip} and whether it legitimately authenticates many users.
+  - Look for account lockouts (AUTH-005) for the targeted accounts.

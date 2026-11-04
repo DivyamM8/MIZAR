@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mizar.local/schemas/rule/1.0.0",
+  "title": "MIZAR detection rule",
+  "x-rule-format-version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "status", "title", "description", "attack", "type",
+               "severity", "confidence", "evidence_strength", "interpretation",
+               "alternative_explanations", "verification_steps"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[A-Z]{2,5}-\\d{3}$"},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "status": {"enum": ["experimental", "stable", "deprecated"]},
+    "title": {"type": "string", "minLength": 5},
+    "description": {"type": "string", "minLength": 10},
+    "attack": {"type": "array", "items": {"type": "string", "pattern": "^T\\d{4}(\\.\\d{3})?$"}},
+    "applies_to": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "type": {"enum": ["match", "threshold", "sequence", "first_seen", "correlation"]},
+    "filter": {"type": "object"},
+    "group_by": {"type": "array", "items": {"type": "string"}},
+    "entities": {"type": "array", "items": {"type": "string"}},
+    "params": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "default", "description"],
+        "properties": {
+          "type": {"enum": ["integer", "duration"]},
+          "default": {},
+          "minimum": {"type": "integer"},
+          "description": {"type": "string"}
+        }
+      }
+    },
+    "threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "window"],
+      "properties": {
+        "count": {"type": "string"},
+        "window": {"type": "string"},
+        "distinct": {"type": "string"},
+        "count_duplicates_once": {"type": "boolean"}
+      }
+    },
+    "sequence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["join", "window", "first", "then"],
+      "properties": {
+        "join": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "window": {"type": "string"},
+        "first": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "filter", "min_count"],
+          "properties": {"name": {"type": "string"}, "filter": {"type": "object"}, "min_count": {"type": "string"}}
+        },
+        "then": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "filter"],
+          "properties": {"name": {"type": "string"}, "filter": {"type": "object"}}
+        }
+      }
+    },
+    "first_seen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "baseline"],
+      "properties": {"key": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "baseline": {"type": "string"}}
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["join", "window", "first", "then"],
+      "properties": {
+        "join": {"type": "string"},
+        "window": {"type": "string"},
+        "first": {"$ref": "#/$defs/step"},
+        "then": {"$ref": "#/$defs/step"}
+      }
+    },
+    "severity": {"$ref": "#/$defs/rating"},
+    "confidence": {"$ref": "#/$defs/rating"},
+    "evidence_strength": {"enum": ["direct", "corroborated", "circumstantial", "inferred"]},
+    "interpretation": {"type": "string", "minLength": 10},
+    "alternative_explanations": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "verification_steps": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "findings": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "events": {"type": "object"}
+      }
+    },
+    "rating": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base", "reason"],
+      "properties": {
+        "base": {"type": "string"},
+        "reason": {"type": "string"},
+        "modifiers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "reason"],
+            "properties": {
+              "when": {"type": "object"},
+              "set": {"type": "string"},
+              "raise": {"type": "integer", "minimum": 1, "maximum": 2},
+              "lower": {"type": "integer", "minimum": 1, "maximum": 2},
+              "reason": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

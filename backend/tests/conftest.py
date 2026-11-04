@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import importlib.util
 import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -75,3 +77,24 @@ def api(client: TestClient) -> TestClient:
     """Client that sends the API token, as the bundled UI does."""
     client.headers[TOKEN_HEADER] = TEST_TOKEN
     return client
+
+
+GENERATOR = Path(__file__).resolve().parents[2] / "fixtures" / "generator" / "generate.py"
+
+
+@pytest.fixture(scope="session")
+def generator() -> Any:
+    """The fixture generator module (fixtures/generator/generate.py)."""
+    spec = importlib.util.spec_from_file_location("mizar_fixture_generator", GENERATOR)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="session")
+def scenarios(generator: Any, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The synthetic scenarios with ground truth, generated once per test session."""
+    output = tmp_path_factory.mktemp("scenarios")
+    generator.generate(output)
+    return output

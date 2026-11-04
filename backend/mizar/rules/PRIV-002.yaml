@@ -1,0 +1,34 @@
+id: PRIV-002
+version: 1.0.0
+status: stable
+title: Repeated sudo authentication failures for {username} on {hostname}
+description: "{count} sudo authentication failures for {username} on {hostname} within {params.window} windows."
+attack: [T1548.003]
+type: threshold
+filter:
+  all:
+    - {field: event_type, op: in, value: [sudo_auth_failure, pam_auth_failure]}
+    - any:
+        - {field: event_type, op: eq, value: sudo_auth_failure}
+        - {field: extra.pam_service, op: eq, value: sudo}
+group_by: [username, hostname]
+params:
+  min_failures: {type: integer, default: 3, minimum: 1, description: Failures needed within the window}
+  window: {type: duration, default: 10m, description: Sliding time window}
+threshold: {count: min_failures, window: window, count_duplicates_once: true}
+severity:
+  base: low
+  reason: Failed sudo passwords are usually mistyping; repeated failures may be guessing.
+confidence:
+  base: low
+  reason: Mistyped passwords produce the same records.
+evidence_strength: direct
+interpretation: >
+  sudo rejected the password of {username} on {hostname} several times between {first}
+  and {last}. Someone with access to the account may have been guessing its password.
+alternative_explanations:
+  - The user mistyped their password repeatedly.
+  - A script feeding the wrong password to sudo.
+verification_steps:
+  - Check whether a successful sudo followed the failures.
+  - Ask the account owner about the attempts.

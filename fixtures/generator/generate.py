@@ -115,16 +115,19 @@ def linux_intrusion(rng: random.Random, out: Path) -> dict[str, Any]:
         ],
         "planted": [
             {"rule_id": "AUTH-001", "entities": {"source_ip": ATTACKER_SSH, "hostname": "srv01"}},
-            {"rule_id": "AUTH-002", "entities": {"source_ip": ATTACKER_SSH}},
             {"rule_id": "AUTH-003", "entities": {"source_ip": ATTACKER_SSH, "username": "deploy"}},
             {"rule_id": "AUTH-006", "entities": {"source_ip": ATTACKER_SSH}},
             {"rule_id": "PERS-001", "entities": {"username": "backdoor"}},
             {"rule_id": "PRIV-003", "entities": {"username": "backdoor", "group": "sudo"}},
             {"rule_id": "PERS-004", "entities": {"username": "root"}},
-            {"rule_id": "CORR-002", "entities": {"hostname": "srv01", "username": "backdoor"}},
+            {"rule_id": "CORR-002", "entities": {"hostname": "srv01"}},
             {"rule_id": "NET-001", "entities": {"source_ip": SCANNER}},
+            {"rule_id": "NET-002", "entities": {"source_ip": SCANNER}},
         ],
         "benign_lookalikes": [
+            {"description": "The brute force tries only 8 account names, below the spraying "
+             "threshold; it is a brute force, not password spraying",
+             "must_not_match": {"rule_id": "AUTH-002", "source_ip": ATTACKER_SSH}},
             {"description": "Monitoring account nagios fails once every 10 minutes from 10.0.0.50",
              "must_not_match": {"rule_id": "AUTH-001", "source_ip": "10.0.0.50"}},
             {"description": "alice uses sudo for routine service checks",
@@ -202,7 +205,7 @@ def web_intrusion(rng: random.Random, out: Path) -> dict[str, Any]:
             {"rule_id": "WEB-002", "entities": {"source_ip": WEB_ATTACKER}},
             {"rule_id": "WEB-003", "entities": {"source_ip": WEB_ATTACKER}},
             {"rule_id": "WEB-004", "entities": {"source_ip": WEB_ATTACKER}},
-            {"rule_id": "WEB-005", "entities": {"source_ip": WEB_ATTACKER, "url": "/uploads/avatar.php"}},
+            {"rule_id": "WEB-005", "entities": {"source_ip": WEB_ATTACKER}},
             {"rule_id": "WEB-006", "entities": {"source_ip": WEB_ATTACKER}},
             {"rule_id": "WEB-007", "entities": {"source_ip": WEB_ATTACKER}},
             {"rule_id": "CORR-001", "entities": {"source_ip": WEB_ATTACKER, "username": "www-admin"}},
@@ -306,13 +309,16 @@ def windows_spray(rng: random.Random, out: Path) -> dict[str, Any]:
             {"rule_id": "PERS-002", "entities": {"service_name": "WinUpdateHelper"}},
             {"rule_id": "PERS-003", "entities": {"task_name": "\\Microsoft\\Windows\\UpdateCheck"}},
             {"rule_id": "PERS-001", "entities": {"username": "helpdesk2"}},
-            {"rule_id": "PRIV-003", "entities": {"group": "Administrators"}},
+            {"rule_id": "PRIV-003", "entities": {"group_name": "Administrators"}},
             {"rule_id": "DEF-001", "entities": {"username": "svc_backup"}},
             {"rule_id": "CORR-002", "entities": {"hostname": host}},
         ],
         "benign_lookalikes": [
-            {"description": "Interactive console logons (type 2) by regular staff",
-             "must_not_match": {"rule_id": "AUTH-008"}},
+            *(
+                {"description": f"Interactive console logons (type 2) by {user}",
+                 "must_not_match": {"rule_id": "AUTH-008", "username": user}}
+                for user in ("jdoe", "asmith", "bwong")
+            ),
         ],
         "counts": {"Security-export.xml:logon_failed": 30, "Security-export.xml:logon": 41},
     }
@@ -418,7 +424,7 @@ def generate(output: Path, seed: int = 20261029) -> list[str]:
         directory = output / name
         directory.mkdir(exist_ok=True)
         truth = build(random.Random(f"{seed}:{name}"), directory)
-        truth = {"scenario": name, "seed": seed, "generator_version": "1.0.0", **truth}
+        truth = {"scenario": name, "seed": seed, "generator_version": "1.1.0", **truth}
         (directory / "ground_truth.json").write_text(json.dumps(truth, indent=2) + "\n")
     return list(SCENARIOS)
 

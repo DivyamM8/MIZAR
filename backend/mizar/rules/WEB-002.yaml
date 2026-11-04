@@ -1,0 +1,38 @@
+id: WEB-002
+version: 1.0.0
+status: stable
+title: SQL injection patterns in requests from {source_ip}
+description: "{event_count} requests from {source_ip} contained SQL injection patterns in the URL."
+attack: [T1190]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: http_request}
+    - any:
+        - {field: extra.url_decoded, op: regex, value: '(?:union(?:\s|/\*.*?\*/)+(?:all\s+)?select|''\s*(?:or|and)\s*''?\w*''?\s*=\s*''?\w|\bor\s+1\s*=\s*1\b|\b(?:sleep|benchmark|pg_sleep)\s*\(|waitfor\s+delay|;\s*(?:drop|delete|insert|update|truncate)\s+\w|information_schema|xp_cmdshell|''\s*--)'}
+        - {field: extra.url, op: regex, value: '(?:union(?:\s|%20|\+)+select|%27(?:%20|\+)*or|information_schema)'}
+group_by: [source_ip]
+severity:
+  base: medium
+  reason: SQL injection attempts target data stored behind the application.
+confidence:
+  base: low
+  reason: A single pattern match can be an odd search term.
+  modifiers:
+    - when: {count_gte: 5}
+      raise: 1
+      reason: Many requests contained injection patterns.
+    - when: {any_event: {field: extra.user_agent, op: regex, value: 'sqlmap|havij|jsql'}}
+      raise: 1
+      reason: An SQL injection tool identified itself.
+evidence_strength: direct
+interpretation: >
+  Requests from {source_ip} between {first} and {last} contained SQL syntax in the URL,
+  consistent with attempts to inject database commands. The access log does not show
+  whether the database executed them.
+alternative_explanations:
+  - An authorized application security test.
+  - Users or search terms that happen to contain SQL keywords.
+verification_steps:
+  - Check the response codes and sizes of the matching requests (unusual sizes may mean data returned).
+  - Review application and database logs for errors or queries at the same times.

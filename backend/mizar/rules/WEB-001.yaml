@@ -1,0 +1,29 @@
+id: WEB-001
+version: 1.0.0
+status: stable
+title: Attack or scanning tool User-Agent from {source_ip}
+description: "{event_count} web requests from {source_ip} identified themselves as a known scanning or attack tool."
+attack: [T1595.002]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: http_request}
+    - {field: extra.user_agent, op: regex, value: '(?:nikto|sqlmap|nmap|masscan|zgrab|gobuster|dirbuster|\bdirb\b|wpscan|nuclei|acunetix|w3af|hydra|wfuzz|ffuf|feroxbuster|whatweb|commix|arachni|skipfish|openvas|netsparker)'}
+group_by: [source_ip]
+entities: [extra.user_agent]
+severity:
+  base: low
+  reason: Tool scanning is reconnaissance; it does not show any effect on the server.
+confidence:
+  base: medium
+  reason: The User-Agent names a tool explicitly, but the header can be set to anything.
+evidence_strength: direct
+interpretation: >
+  Requests from {source_ip} carried the User-Agent of a known scanner or attack tool
+  ({user_agent}) between {first} and {last}, consistent with automated probing.
+alternative_explanations:
+  - An authorized vulnerability scan or penetration test.
+  - A researcher or monitoring service using the tool openly.
+verification_steps:
+  - Ask whether a security test from {source_ip} was scheduled.
+  - Check which requests received 2xx responses (WEB-007).

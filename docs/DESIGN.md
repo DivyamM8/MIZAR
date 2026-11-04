@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | **Approved for implementation** |
-| Document version | 0.4.0 |
+| Document version | 0.5.0 |
 | Licence | Apache-2.0 |
 | Date | 2026-10-29 |
 | Event schema version | 1.0.0 (proposed) |
@@ -92,6 +92,12 @@ investigators. **Secondary:** CTF participants and learners.
 | D23 | Windows exports without field names | Get-WinEvent JSON (positional `Properties`) and Event Viewer CSV (rendered message only) map the event ID's meaning but leave account/IP fields null, marked `partial` | Guessing which positional value is the username would produce misleading data |
 | D24 | Per-parse constants | `schema_version`, `parser_version`, `ingestion_time` are stored once per parse result and joined into every event by the API | Same schema to clients, ~40 bytes less per stored event |
 | D25 | Query planning | Selective filters (IP, user, host, file, event type) write the case condition as `+case_id` so SQLite uses the selective index; `PRAGMA optimize` runs after each parse | Measured: case-scoped IP lookup on 1M events 469 ms → 0.1 ms |
+| D26 | Rule parameters | Declared once in a `params` block (type, default, minimum, description) and referenced by name | The run manifest lists exactly which values were tunable and which were used |
+| D27 | Finding granularity | One finding per rule per grouping key; threshold bursts are listed inside it | Stable fingerprints, so analyst status and notes carry over between runs even when thresholds change |
+| D28 | Correlation rules | `correlation` rules chain base-rule findings (and optionally events) by a join field and time window; they cannot chain other correlations | Reuses base detections instead of re-detecting; keeps chains explainable |
+| D29 | First-seen rules | Only values first seen *after a baseline period* of the case's data are flagged; if the data is shorter than the baseline the run notes it | Without a baseline, everything is "first seen" once |
+| D30 | Evidence links | `finding_events` has no foreign key to events. Links follow original records: re-parsing the same bytes keeps the IDs, and links to records that no longer exist are shown as not present | Old runs stay reviewable after re-parsing |
+| D31 | Regex engine | RE2 (linear time, no backreferences) for all rule regexes | A hostile log line cannot stall a rule |
 
 ---
 
@@ -460,78 +466,96 @@ Nothing is deleted or merged destructively.
 
 ## 9. Detection
 
-### 9.1 Rule format (YAML, `rule.v1.json` schema)
+### 9.1 Rule format (YAML, `mizar/schemas/rule.v1.json`)
+
+One file per rule in `backend/mizar/rules/<ID>.yaml`; the catalogue is
+generated as [docs/rules.md](rules.md). Example (abridged from `AUTH-001`):
 
 ```yaml
 id: AUTH-001
-version: 1.2.0
-title: Possible SSH brute force from a single source
+version: 1.0.0
+status: stable
+title: Possible SSH brute force from {source_ip} against {hostname}
 description: >
-  Many failed SSH authentication attempts from one source IP within a short window.
-status: stable            # experimental | stable | deprecated
+  {count} failed SSH authentication attempts from {source_ip} to {hostname} ...
 attack: [T1110.001]
-applies_to: [linux_auth, syslog, journald]
-type: threshold           # match | threshold | sequence | first_seen
+applies_to: [linux_auth]          # optional: source types
+type: threshold
 filter:
   all:
     - {field: event_type, op: eq, value: logon_failed}
-    - {field: process_name, op: eq, value: sshd}
+    - {field: process_name, op: in, value: [sshd, sshd-session]}
 group_by: [source_ip, hostname]
-threshold:
-  count: {param: min_failures, default: 20}
-  window: {param: window, default: 10m}
-  count_duplicates_once: true
+params:
+  min_failures: {type: integer, default: 20, minimum: 2, description: ...}
+  window: {type: duration, default: 10m, description: ...}
+threshold: {count: min_failures, window: window, count_duplicates_once: true}
 severity:
   base: medium
-  modifiers:
-    - when: {distinct: username, gte: 5}
-      set: high
-      reason: Many distinct usernames targeted (also matches spraying behavior)
+  reason: Repeated password guessing is an attack attempt with unknown outcome.
 confidence:
   base: medium
+  reason: ...
   modifiers:
-    - when: {all_events_parsed: true}
+    - when: {count_gte: 100}
       raise: 1
-      reason: All supporting records fully parsed
+      reason: The volume is far above what a mistyping user produces.
 evidence_strength: direct
 interpretation: >
-  The source IP made repeated failed SSH logon attempts consistent with
-  password guessing.
-alternative_explanations:
-  - Misconfigured automation or monitoring with stale credentials
-  - Authorized vulnerability scan or penetration test
-  - Many users behind one NAT or proxy address
-verification_steps:
-  - Check whether any logon from this IP succeeded (see AUTH-003)
-  - Confirm with the network owner whether the IP is an authorized scanner
-  - Review firewall logs for the same IP across other hosts
+  The address {source_ip} made repeated failed SSH logon attempts ...
+alternative_explanations: [...]
+verification_steps: [...]
 ```
 
+Templates use `{field}`, `{distinct.field}`, `{params.name}`, `{count}`,
+`{first}`, `{last}` and `{a|b}` (first of several that has a value). They are
+filled by dictionary lookup only.
+
+Modifier conditions: `count_gte`, `distinct_gte {field, value}`,
+`any_event <filter>`, `all_events <filter>`, `all_events_parsed`,
+`includes_rules [IDs]` (correlation). Actions: `set`, `raise`, `lower`.
+Confidence is also lowered automatically when supporting records are only
+partially parsed, and for multi-source sequences that rely on analyst
+timezone hints.
+
 Rule types:
-- `match`: single-event condition (e.g. user added to an admin group).
+- `match`: single-event condition (e.g. user added to an admin group). With
+  `group_by`, matching events of one key form one finding; otherwise each event
+  is its own finding.
 - `threshold`: count, or distinct count, per `group_by` in a sliding window.
-- `sequence`: ordered steps sharing join keys within a window (e.g. failures
-  then success from the same IP).
+  rsyslog "message repeated N times" lines count N times; the same record
+  collected in two files counts once.
+- `sequence`: a `first` step (with `min_count`) followed by a `then` step that
+  share `join` fields within a window (e.g. failures then success from the same
+  IP).
 - `first_seen`: the first occurrence of a value combination **within this
-  case's data**. The report wording always states this scope.
+  case's data**, after a baseline period (D29).
+- `correlation`: findings of base rules (or events) chained by a join field
+  within a window (D28).
+
+Events without a reliable UTC time cannot be placed in windows. Time-based rules
+skip them and the run notes how many were skipped.
 
 Operators: `eq`, `neq`, `in`, `contains`, `startswith`, `endswith`, `regex`
-(safe engine, §15), `cidr`, `exists`, `gte`, `lte`. Case sensitivity is
-explicit per condition.
+(RE2, D31), `cidr`, `exists`, `gte`, `lte`. String comparisons ignore case
+unless `ignore_case: false`. When a field holds a list (e.g. auditd paths), a
+condition matches if any element matches.
 
-Every rule declares its tunable `param`s. Effective values come from rule
-default → global config → per-run override, and the run manifest records them.
+Every rule declares its tunable `params`. Effective values are the rule
+default or a per-run override; the run manifest records them.
 
-Rule validation runs at startup and in CI: schema check, unique IDs, SemVer,
-`attack` IDs well-formed, and at least one positive and one negative test
-fixture per rule.
+Rule validation runs when rules load and in the tests: schema check, file name
+matches ID, unique IDs, SemVer, `attack` IDs well-formed, declared parameters,
+known fields, RE2-compatible regexes, Critical only in correlation rules, and
+the wording rules of §11.4. Tests cover every rule with planted scenarios or
+dedicated positive and negative cases.
 
 ### 9.2 v1 rule catalogue
 
 | ID | Title (draft) | Type | ATT&CK | Base sev. |
 |---|---|---|---|---|
 | AUTH-001 | Possible SSH brute force from a single source | threshold | T1110.001 | Medium |
-| AUTH-002 | Possible password spraying (one source, many accounts) | threshold (distinct users) | T1110.003 | Medium |
+| AUTH-002 | Possible password spraying (one source, ≥ 10 accounts by default) | threshold (distinct users) | T1110.003 | Medium |
 | AUTH-003 | Successful logon after repeated failures | sequence | T1110, T1078 | High |
 | AUTH-004 | Windows logon failure burst (4625) | threshold | T1110 | Medium |
 | AUTH-005 | Account lockout (4740) | match | T1110 | Low |
@@ -555,7 +579,7 @@ fixture per rule.
 | WEB-004 | Cross-site scripting patterns | match | T1190 | Low |
 | WEB-005 | Possible web shell interaction (successful requests to script files with command-like parameters) | match | T1505.003 | High |
 | WEB-006 | 404 burst from one client (content discovery) | threshold | T1595.003 | Low |
-| WEB-007 | Attack pattern request answered with HTTP 200 | sequence | T1190 | High |
+| WEB-007 | Attack pattern request answered with HTTP 200 | match | T1190 | High |
 | NET-001 | Possible port scan (one source, many destination ports or hosts) | threshold (distinct) | T1046 | Medium |
 | NET-002 | Denied connection burst | threshold | T1046 | Low |
 | NET-003 | Zeek notice passthrough | match | (per notice) | Informational |
@@ -907,6 +931,8 @@ color alone). Dark and light themes. All assets are bundled locally (no CDN).
   (≈ 12 min per 10M events), database ≈ 9.8× the log size, case-scoped field
   lookups ≈ 10 ms. Revised targets: ≥ 12k events/s for text formats, finding
   list < 500 ms, timeline page < 1 s (keyset pagination, Phase 4).
+  Measured in Phase 3: a full analysis run (32 rules) over 1M events takes
+  **~48 s** (≈ 8 min per 10M events); the finding list returns in < 10 ms.
 - Tooling: pytest, ruff, mypy (strict on core packages), ESLint + TypeScript
   strict, Vitest, Playwright for a few end-to-end flows.
 

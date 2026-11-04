@@ -1,0 +1,43 @@
+id: CORR-001
+version: 1.0.0
+status: stable
+title: Web attack activity from {source_ip} followed by a successful logon from the same address
+description: >
+  {source_ip} sent web attack requests and then logged on successfully to a system
+  within {params.window}.
+attack: [T1190, T1078]
+type: correlation
+params:
+  window: {type: duration, default: 24h, description: Maximum time from the end of the web activity to the logon}
+correlation:
+  join: source_ip
+  window: window
+  first: {name: web_attack, findings: [WEB-002, WEB-003, WEB-005, WEB-007]}
+  then:
+    name: logon
+    events:
+      all:
+        - {field: event_type, op: eq, value: logon}
+        - {field: event_outcome, op: eq, value: success}
+severity:
+  base: high
+  reason: An address probing the web application also holds working credentials for a system.
+confidence:
+  base: medium
+  reason: Two independent sources agree on the address; shared addresses (NAT, proxies) can link unrelated activity.
+  modifiers:
+    - when: {includes_rules: [WEB-005]}
+      raise: 1
+      reason: The web activity includes possible web shell use.
+evidence_strength: corroborated
+interpretation: >
+  The same address {source_ip} first appears in web attack findings and then in a
+  successful logon for {username}. This is consistent with credentials or access obtained
+  through the web application being used to log on.
+alternative_explanations:
+  - Several users share {source_ip} behind NAT or a proxy.
+  - An authorized penetration test using one address for all activity.
+verification_steps:
+  - Check the web findings and the logon in the chain for timing and accounts.
+  - Ask the owner of {username} whether the logon was theirs.
+  - Review the session that followed the logon.

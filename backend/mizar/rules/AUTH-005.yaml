@@ -1,0 +1,27 @@
+id: AUTH-005
+version: 1.0.0
+status: stable
+title: Account lockout for {username}
+description: The account {username} was locked out {event_count} time(s) on {hostname}.
+attack: [T1110]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: account_locked_out}
+group_by: [username, hostname]
+severity:
+  base: low
+  reason: A lockout shows failed attempts were blocked; on its own it is a weak signal.
+confidence:
+  base: medium
+  reason: The lockout record is explicit; its cause is not stated in it.
+evidence_strength: direct
+interpretation: >
+  The account {username} reached its failed-logon limit and was locked between {first}
+  and {last}. This can follow password guessing or ordinary mistyping.
+alternative_explanations:
+  - The user forgot or mistyped a recently changed password.
+  - A device or service still uses the old password.
+verification_steps:
+  - Find the failed logons that preceded the lockout and their source.
+  - Ask the account owner whether they were locked out.

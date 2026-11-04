@@ -21,7 +21,10 @@ def to_utc_storage(value: datetime) -> str:
 
 
 def from_utc_storage(text: str) -> datetime:
-    return datetime.strptime(text, UTC_STORAGE_FORMAT).replace(tzinfo=UTC)
+    # fromisoformat reads the fixed storage format exactly and is much faster than strptime.
+    if len(text) != 27 or not text.endswith("Z"):
+        raise ValueError(f"not a stored UTC timestamp: {text!r}")
+    return datetime.fromisoformat(text[:-1]).replace(tzinfo=UTC)
 
 
 def validate_timezone_name(name: str) -> str:

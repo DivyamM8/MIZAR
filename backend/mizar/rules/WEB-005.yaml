@@ -1,0 +1,36 @@
+id: WEB-005
+version: 1.0.0
+status: stable
+title: Possible web shell interaction from {source_ip}
+description: "{event_count} successful requests from {source_ip} called a server-side script with command-like parameters."
+attack: [T1505.003]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: http_request}
+    - {field: event_code, op: eq, value: "200"}
+    - {field: extra.url_decoded, op: regex, value: '\.(?:php\d?|phtml|phar|aspx?|ashx|jspx?|cfm|cgi|pl)\?(?:[^#]*&)?(?:cmd|exec|command|execute|shell|run|system|passthru|eval)='}
+group_by: [source_ip]
+entities: [extra.url]
+severity:
+  base: high
+  reason: A working web shell gives command execution on the server.
+confidence:
+  base: medium
+  reason: The request shape is typical of web shells; some admin scripts take similar parameters.
+  modifiers:
+    - when: {any_event: {field: extra.url_decoded, op: regex, value: '/(?:uploads?|images?|img|tmp|temp|files|media|static)/[^?]*\.(?:php\d?|phtml|phar|aspx?|jspx?)'}}
+      raise: 1
+      reason: The script sits in a directory meant for uploaded or static files.
+evidence_strength: direct
+interpretation: >
+  {source_ip} called {url} and similar URLs with command-like parameters, and the server
+  answered 200 each time. This is consistent with a web shell being used. The access log
+  does not show what the script did.
+alternative_explanations:
+  - A legitimate administrative script that takes a "cmd" parameter.
+  - A scanner probing for known shells against pages that return 200 for every URL.
+verification_steps:
+  - Inspect the script file on the server and compare it with the deployed application.
+  - Check the response sizes and process activity on the server at {first}–{last}.
+  - Look for how the script was uploaded (POST requests to the same path).

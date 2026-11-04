@@ -1,0 +1,34 @@
+id: PRIV-003
+version: 1.0.0
+status: stable
+title: "{username} added to privileged group {group|group_name} on {hostname}"
+description: >
+  The account {username} was added to the privileged group {group|group_name} on
+  {hostname} at {first}.
+attack: [T1098]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: group_member_added}
+    - any:
+        - {field: extra.group, op: in, value: [sudo, wheel, admin, root, adm, docker, lxd]}
+        - {field: extra.group_name, op: in, value: [Administrators, Domain Admins, Enterprise Admins, Schema Admins, Account Operators, Backup Operators, Server Operators, Print Operators, DnsAdmins, Group Policy Creator Owners]}
+entities: [extra.group, extra.group_name, extra.actor]
+severity:
+  base: high
+  reason: Membership in this group grants administrative control.
+confidence:
+  base: medium
+  reason: The change is recorded explicitly; whether it was authorized is not.
+evidence_strength: direct
+interpretation: >
+  {username} became a member of {group|group_name} on {hostname}, which grants
+  administrative rights. Unexpected additions to privileged groups are a common way to
+  keep elevated access.
+alternative_explanations:
+  - A planned change by an administrator (check the change record).
+  - Automated provisioning of a new administrator account.
+verification_steps:
+  - Find who made the change ({actor} if recorded, or the session active at {first}).
+  - Check for a change ticket approving the addition.
+  - Review the account's activity after the change.

@@ -1,0 +1,27 @@
+id: PERS-001
+version: 1.0.0
+status: stable
+title: Local account {username} created on {hostname}
+description: The account {username} was created on {hostname} at {first}.
+attack: [T1136.001]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: user_created}
+entities: [extra.actor]
+severity:
+  base: medium
+  reason: New local accounts are a common way to keep access; most are legitimate.
+confidence:
+  base: medium
+  reason: The creation is recorded explicitly; whether it was authorized is not.
+evidence_strength: direct
+interpretation: >
+  A new account {username} was created on {hostname}. Unplanned local accounts can be
+  used to keep access to a system.
+alternative_explanations:
+  - Routine onboarding or provisioning of a service account.
+  - Package installation creating a system user.
+verification_steps:
+  - Find who created the account and whether a request or ticket exists.
+  - Check the account's group memberships and logons after {first}.

@@ -292,3 +292,104 @@ event_group_members = Table(
     ),
     Index(None, "event_id"),
 )
+
+RUN_STATUSES = ("queued", "running", "succeeded", "succeeded_with_errors", "failed", "cancelled")
+FINDING_STATUSES = ("open", "investigating", "confirmed", "false_positive", "resolved")
+
+analysis_runs = Table(
+    "analysis_runs",
+    metadata,
+    Column("run_id", String(40), primary_key=True),
+    Column("case_id", String(40), ForeignKey("cases.case_id", ondelete="CASCADE"), nullable=False),
+    Column("job_id", String(40)),
+    Column("status", String(24), nullable=False),
+    Column("triggered_by", String(200), nullable=False),
+    Column("created_at", UTCDateTime(), nullable=False),
+    Column("started_at", UTCDateTime()),
+    Column("finished_at", UTCDateTime()),
+    # Parameter overrides requested for this run (validated against the rule set).
+    Column("overrides", JSON, nullable=False),
+    # DESIGN.md §12.1: inputs, rules, config, versions.
+    Column("manifest", JSON),
+    Column("manifest_sha256", String(64)),
+    # Hash of everything that determines the findings (no run ID or timestamps):
+    # two runs with the same value must produce the same findings.
+    Column("inputs_fingerprint", String(64)),
+    Column("results", JSON),
+    Column("error_code", String(64)),
+    Column("error_message", Text),
+    CheckConstraint(
+        "status IN ('queued', 'running', 'succeeded', 'succeeded_with_errors', 'failed', "
+        "'cancelled')",
+        name="status",
+    ),
+    Index(None, "case_id", "created_at"),
+)
+
+findings = Table(
+    "findings",
+    metadata,
+    Column("finding_id", String(60), primary_key=True),
+    Column(
+        "run_id", String(40), ForeignKey("analysis_runs.run_id", ondelete="CASCADE"), nullable=False
+    ),
+    Column("case_id", String(40), ForeignKey("cases.case_id", ondelete="CASCADE"), nullable=False),
+    Column("fingerprint", String(64), nullable=False),
+    Column("rule_id", String(20), nullable=False),
+    Column("rule_version", String(20), nullable=False),
+    Column("title", Text, nullable=False),
+    Column("description", Text, nullable=False),
+    Column("severity", String(16), nullable=False),
+    Column("severity_rationale", JSON, nullable=False),
+    Column("confidence", String(8), nullable=False),
+    Column("confidence_rationale", JSON, nullable=False),
+    Column("evidence_strength", String(16), nullable=False),
+    Column("attack_techniques", JSON, nullable=False),
+    Column("first_observed_utc", UTCDateTime()),
+    Column("last_observed_utc", UTCDateTime()),
+    Column("entities", JSON, nullable=False),
+    Column("observed_evidence", JSON, nullable=False),
+    Column("interpretation", Text, nullable=False),
+    Column("alternative_explanations", JSON, nullable=False),
+    Column("verification_steps", JSON, nullable=False),
+    Column("source_files", JSON, nullable=False),
+    Column("related_finding_ids", JSON, nullable=False),
+    Column("event_count", Integer, nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("analyst_notes", Text),
+    Column("status_carried_from", String(60)),
+    Column("updated_by", String(200)),
+    Column("updated_at", UTCDateTime()),
+    CheckConstraint(
+        "severity IN ('informational', 'low', 'medium', 'high', 'critical')", name="severity"
+    ),
+    CheckConstraint("confidence IN ('low', 'medium', 'high')", name="confidence"),
+    CheckConstraint(
+        "evidence_strength IN ('direct', 'corroborated', 'circumstantial', 'inferred')",
+        name="evidence_strength",
+    ),
+    CheckConstraint(
+        "status IN ('open', 'investigating', 'confirmed', 'false_positive', 'resolved')",
+        name="status",
+    ),
+    Index(None, "run_id"),
+    Index(None, "case_id", "fingerprint"),
+)
+
+# Evidence links. No foreign key to events: a later re-parse replaces events (usually
+# with the same IDs), and an old run's links must survive that; missing events are
+# reported as such.
+finding_events = Table(
+    "finding_events",
+    metadata,
+    Column(
+        "finding_id",
+        String(60),
+        ForeignKey("findings.finding_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("event_id", String(36), primary_key=True),
+    Column("role", String(30), nullable=False),
+    Column("position", Integer, nullable=False),
+    Index(None, "event_id"),
+)

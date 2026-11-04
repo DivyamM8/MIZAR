@@ -1,0 +1,29 @@
+id: PERS-005
+version: 1.0.0
+status: stable
+title: SSH authorized_keys modified on {hostname}
+description: "The audit log recorded {event_count} access(es) to SSH authorized_keys files ({paths}) on {hostname} by {process_name}."
+attack: [T1098.004]
+applies_to: [auditd]
+type: match
+filter:
+  all:
+    - {field: extra.paths, op: endswith, value: [/.ssh/authorized_keys, /.ssh/authorized_keys2]}
+group_by: [hostname, username]
+entities: [extra.paths, process_name]
+severity:
+  base: medium
+  reason: Adding a key to authorized_keys grants password-less SSH access.
+confidence:
+  base: low
+  reason: Audit watches record reads and writes alike; the evidence must show a change.
+evidence_strength: direct
+interpretation: >
+  An authorized_keys file on {hostname} was accessed by {process_name}. If keys were
+  added, they allow SSH logons without a password.
+alternative_explanations:
+  - A user adding their own new key.
+  - Configuration management distributing keys.
+verification_steps:
+  - Compare the current authorized_keys files with a known-good copy.
+  - Check the syscall in the evidence (open for writing vs reading).

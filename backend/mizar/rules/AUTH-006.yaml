@@ -1,0 +1,36 @@
+id: AUTH-006
+version: 1.0.0
+status: stable
+title: Logon attempts for non-existent accounts from {source_ip}
+description: >
+  {count} logon attempts for account names that do not exist came from {source_ip}
+  ({distinct.username} different names) within {params.window} windows.
+attack: [T1110]
+type: threshold
+filter:
+  all:
+    - {field: event_type, op: in, value: [invalid_user, logon_failed]}
+    - any:
+        - {field: event_type, op: eq, value: invalid_user}
+        - {field: extra.sub_status, op: eq, value: "0xc0000064"}
+group_by: [source_ip]
+params:
+  min_attempts: {type: integer, default: 5, minimum: 1, description: Attempts needed within the window}
+  window: {type: duration, default: 10m, description: Sliding time window}
+threshold: {count: min_attempts, window: window, count_duplicates_once: true}
+severity:
+  base: low
+  reason: Guessing account names is reconnaissance or an untargeted attempt.
+confidence:
+  base: medium
+  reason: The records state the account does not exist; scripted typos are rare.
+evidence_strength: direct
+interpretation: >
+  {source_ip} tried account names that do not exist on the system, consistent with
+  automated guessing of common account names.
+alternative_explanations:
+  - A client configured with a wrong or removed account name.
+  - An inventory or monitoring tool probing with default names.
+verification_steps:
+  - Review which account names were tried (top values in the evidence).
+  - Check whether {source_ip} also tried existing accounts (AUTH-001, AUTH-002).

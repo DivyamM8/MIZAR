@@ -1,0 +1,38 @@
+id: NET-001
+version: 1.0.0
+status: stable
+title: Possible port scan from {source_ip} ({distinct.destination_port} ports)
+description: >
+  {source_ip} attempted connections to {distinct.destination_port} different destination
+  ports within {params.window} windows.
+attack: [T1046]
+type: threshold
+filter:
+  all:
+    - {field: event_category, op: eq, value: network}
+    - {field: event_type, op: in, value: [connection_denied, connection_allowed, firewall_log, network_connection]}
+group_by: [source_ip]
+params:
+  min_ports: {type: integer, default: 50, minimum: 2, description: Distinct destination ports needed within the window}
+  window: {type: duration, default: 5m, description: Sliding time window}
+threshold: {count: min_ports, window: window, distinct: destination_port, count_duplicates_once: true}
+severity:
+  base: medium
+  reason: Port scanning maps services for later attacks.
+confidence:
+  base: medium
+  reason: Many ports from one source in minutes is rarely normal traffic.
+  modifiers:
+    - when: {distinct_gte: {field: destination_port, value: 200}}
+      raise: 1
+      reason: A very large number of ports was probed.
+evidence_strength: direct
+interpretation: >
+  {source_ip} tried many different ports between {first} and {last}, consistent with a
+  port scan of {destination_ip}.
+alternative_explanations:
+  - An authorized network scanner or asset inventory tool.
+  - Peer-to-peer or VoIP software using many ports.
+verification_steps:
+  - Identify the owner of {source_ip} and whether scanning is authorized.
+  - Check whether any scanned port was open and later contacted again by the same source.

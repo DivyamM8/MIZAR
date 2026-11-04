@@ -1,0 +1,32 @@
+id: AUTH-009
+version: 1.0.0
+status: stable
+title: Explicit credentials used by {username} to reach {target_server}
+description: >
+  Logons with explicitly supplied credentials (event 4648) for {username} targeting
+  {target_server} were recorded {event_count} time(s) on {hostname}.
+attack: [T1078, T1021]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: explicit_credential_logon}
+    - {field: extra.target_server, op: exists}
+    - not: {field: extra.target_server, op: in, value: [localhost, "127.0.0.1", "::1", "-"]}
+group_by: [username, extra.target_server, hostname]
+severity:
+  base: low
+  reason: Explicit credentials are routine for administrators but also used in lateral movement.
+confidence:
+  base: low
+  reason: The event is normal in many environments; context decides.
+evidence_strength: direct
+interpretation: >
+  A process on {hostname} supplied credentials for {username} explicitly to connect to
+  {target_server}. This is routine for "run as" and admin tools, and is also how
+  stolen credentials are used to move between systems.
+alternative_explanations:
+  - An administrator using runas, mapped drives or remote management tools.
+  - A scheduled task or service configured with an explicit account.
+verification_steps:
+  - Identify the process named in the events and whether it is an expected admin tool.
+  - Check logons on {target_server} at the same time for {username}.

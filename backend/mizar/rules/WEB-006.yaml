@@ -1,0 +1,31 @@
+id: WEB-006
+version: 1.0.0
+status: stable
+title: Burst of 404 responses for {source_ip}
+description: "{count} requests from {source_ip} received 404 Not Found within {params.window} windows."
+attack: [T1595.003]
+type: threshold
+filter:
+  all:
+    - {field: event_type, op: eq, value: http_request}
+    - {field: event_code, op: eq, value: "404"}
+group_by: [source_ip]
+params:
+  min_requests: {type: integer, default: 50, minimum: 2, description: 404 responses needed within the window}
+  window: {type: duration, default: 5m, description: Sliding time window}
+threshold: {count: min_requests, window: window, count_duplicates_once: true}
+severity:
+  base: low
+  reason: Content discovery is reconnaissance.
+confidence:
+  base: medium
+  reason: Many missing pages in a short time is typical of automated discovery.
+evidence_strength: direct
+interpretation: >
+  {source_ip} requested many pages that do not exist between {first} and {last},
+  consistent with automated discovery of hidden content.
+alternative_explanations:
+  - A broken link checker or misconfigured client.
+  - An authorized scanner.
+verification_steps:
+  - Review which paths were requested and whether any returned 200 afterwards.

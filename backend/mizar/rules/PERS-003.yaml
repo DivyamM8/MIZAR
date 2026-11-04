@@ -1,0 +1,27 @@
+id: PERS-003
+version: 1.0.0
+status: stable
+title: Scheduled task {task_name} created on {hostname}
+description: The scheduled task {task_name} was created on {hostname} by {username} at {first}.
+attack: [T1053.005]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: scheduled_task_created}
+entities: [extra.task_name]
+severity:
+  base: medium
+  reason: Scheduled tasks run code automatically.
+confidence:
+  base: medium
+  reason: The creation is recorded explicitly; software creates tasks routinely.
+evidence_strength: direct
+interpretation: >
+  A scheduled task {task_name} was created on {hostname}. Tasks can be used to run code
+  repeatedly or at startup.
+alternative_explanations:
+  - Software installers and updaters registering maintenance tasks.
+  - An administrator scheduling a job.
+verification_steps:
+  - Review the task's action (the command it runs) in the event data.
+  - Check who created it and whether the command is a known, signed program.

@@ -1,0 +1,28 @@
+id: DEF-001
+version: 1.0.0
+status: stable
+title: Event log cleared on {hostname}
+description: "An event log on {hostname} was cleared at {first} by {username}."
+attack: [T1070.001]
+type: match
+filter:
+  all:
+    - {field: event_type, op: in, value: [audit_log_cleared, log_cleared]}
+entities: [extra.cleared_channel, extra.channel]
+severity:
+  base: high
+  reason: Clearing logs removes the record of earlier activity.
+confidence:
+  base: high
+  reason: Windows records the clearing itself explicitly.
+evidence_strength: direct
+interpretation: >
+  The {cleared_channel|channel} event log on {hostname} was cleared by {username} at {first}.
+  Events before that moment may be missing from this log; other sources may still hold them.
+alternative_explanations:
+  - An administrator clearing a full log during maintenance.
+  - Reimaging or test procedures.
+verification_steps:
+  - Ask {username} and the system owner whether the log was cleared intentionally.
+  - Look for forwarded copies of the log (SIEM, Windows Event Forwarding) covering the gap.
+  - Review the activity of {username} immediately before {first}.

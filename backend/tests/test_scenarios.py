@@ -1,6 +1,5 @@
 """Synthetic scenarios through the full pipeline: upload -> ingest -> parse."""
 
-import importlib.util
 import json
 from collections import Counter
 from collections.abc import Callable
@@ -10,19 +9,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-GENERATOR = Path(__file__).resolve().parents[2] / "fixtures" / "generator" / "generate.py"
 RunJobs = Callable[[], int]
-
-
-@pytest.fixture(scope="module")
-def scenarios(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    spec = importlib.util.spec_from_file_location("mizar_fixture_generator", GENERATOR)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    output = tmp_path_factory.mktemp("scenarios")
-    module.generate(output)
-    return output
 
 
 def _ingest(api: TestClient, run_jobs: RunJobs, directory: Path) -> tuple[str, dict[str, Any]]:

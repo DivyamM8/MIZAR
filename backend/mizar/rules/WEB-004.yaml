@@ -1,0 +1,31 @@
+id: WEB-004
+version: 1.0.0
+status: stable
+title: Cross-site scripting patterns in requests from {source_ip}
+description: "{event_count} requests from {source_ip} contained script or event-handler markup in the URL."
+attack: [T1190]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: http_request}
+    - {field: extra.url_decoded, op: regex, value: '(?:<\s*script|javascript:|\bon(?:error|load|mouseover|focus)\s*=|<\s*svg[^>]*\son\w+\s*=|<\s*img[^>]*\son\w+\s*=|alert\s*\(|document\.cookie|<\s*iframe)'}
+group_by: [source_ip]
+severity:
+  base: low
+  reason: Reflected XSS attempts target other users of the site, not the server.
+confidence:
+  base: low
+  reason: Markup in URLs also appears in harmless contexts.
+  modifiers:
+    - when: {count_gte: 3}
+      raise: 1
+      reason: Several requests contained script markup.
+evidence_strength: direct
+interpretation: >
+  Requests from {source_ip} contained HTML script or event-handler markup in the URL,
+  consistent with probing for cross-site scripting.
+alternative_explanations:
+  - An authorized scan or a developer testing input handling.
+  - Links copied from pages that contain such markup.
+verification_steps:
+  - Check whether the application reflects the parameter unescaped in its response.

@@ -1,0 +1,35 @@
+id: PRIV-005
+version: 1.0.0
+status: stable
+title: Credential file access by {process_name} on {hostname}
+description: >
+  The audit log recorded {event_count} access(es) to credential files ({paths}) by
+  {process_name} on {hostname}.
+attack: [T1003.008]
+applies_to: [auditd]
+type: match
+filter:
+  all:
+    - {field: extra.paths, op: in, value: [/etc/shadow, /etc/gshadow, /etc/security/opasswd, /etc/sudoers]}
+group_by: [username, hostname, process_name]
+entities: [extra.paths]
+severity:
+  base: medium
+  reason: Password hash files are read to extract credentials.
+confidence:
+  base: low
+  reason: Many system tools read these files routinely; the process decides.
+  modifiers:
+    - when: {any_event: {field: process_name, op: regex, value: '(?:/|^)(?:cat|less|more|head|tail|cp|scp|tar|base64|xxd|vi|vim|nano|python\d*|perl)$'}}
+      raise: 1
+      reason: The file was read by a general-purpose tool, not a login or password utility.
+evidence_strength: direct
+interpretation: >
+  {process_name} accessed {paths} on {hostname}. Reading password hash files outside of
+  login and password tools can indicate an attempt to copy credentials.
+alternative_explanations:
+  - Login, sudo, passwd or PAM utilities reading the files as part of normal operation.
+  - Configuration management or backup software.
+verification_steps:
+  - Check the user and session that ran {process_name} (audit session ID in the evidence).
+  - Look for the file contents being copied or transferred afterwards.

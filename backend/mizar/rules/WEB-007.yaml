@@ -1,0 +1,37 @@
+id: WEB-007
+version: 1.0.0
+status: stable
+title: Attack pattern requests answered with HTTP 200 for {source_ip}
+description: "{event_count} requests from {source_ip} with SQL injection or traversal patterns received HTTP 200."
+attack: [T1190]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: http_request}
+    - {field: event_code, op: eq, value: "200"}
+    - any:
+        - {field: extra.url_decoded, op: regex, value: '(?:union(?:\s|/\*.*?\*/)+(?:all\s+)?select|''\s*(?:or|and)\s*''?\w*''?\s*=\s*''?\w|\b(?:sleep|benchmark|pg_sleep)\s*\(|;\s*(?:drop|delete|insert|update|truncate)\s+\w|information_schema|\.\./|\.\.\\|/etc/(?:passwd|shadow)\b|php://(?:filter|input))'}
+        - {field: extra.url, op: regex, value: '(?:%2e%2e(?:%2f|%5c|/)|\.\.%2f)'}
+group_by: [source_ip]
+severity:
+  base: high
+  reason: If the application processed these requests, data may have been read or changed.
+confidence:
+  base: low
+  reason: An HTTP 200 response does not show that the request had an effect; many applications return 200 for error pages.
+  modifiers:
+    - when: {count_gte: 5}
+      raise: 1
+      reason: Several attack requests were answered with 200.
+evidence_strength: circumstantial
+interpretation: >
+  Requests from {source_ip} that contained attack patterns were answered with 200 between
+  {first} and {last}. This leaves open whether the application processed them; the
+  response content is not in the access log.
+alternative_explanations:
+  - The application returned a normal page and ignored the injected input.
+  - A custom error page served with status 200.
+verification_steps:
+  - Compare the response sizes with normal responses for the same paths.
+  - Reproduce the request against a test copy of the application.
+  - Review application and database logs at the same times.

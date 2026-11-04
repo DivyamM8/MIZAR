@@ -1,0 +1,35 @@
+id: PRIV-004
+version: 1.0.0
+status: stable
+title: Special privileges assigned to {username} on {hostname} after the baseline
+description: >
+  {username} received special privileges at logon (event 4672) on {hostname}, first after
+  the first {params.baseline} of this case's data.
+attack: [T1078.002]
+type: first_seen
+filter:
+  all:
+    - {field: event_type, op: eq, value: special_privileges_assigned}
+    - {field: username, op: exists}
+    - not: {field: username, op: endswith, value: "$"}
+    - not: {field: username, op: in, value: [SYSTEM, LOCAL SERVICE, NETWORK SERVICE, ANONYMOUS LOGON]}
+    - not: {field: username, op: startswith, value: [DWM-, UMFD-]}
+first_seen: {key: [username, hostname], baseline: baseline}
+params:
+  baseline: {type: duration, default: 24h, description: Initial period of the data treated as normal}
+severity:
+  base: low
+  reason: A newly privileged account is worth reviewing; it is often a legitimate admin.
+confidence:
+  base: low
+  reason: Rarity is judged only within this case's data.
+evidence_strength: inferred
+interpretation: >
+  Within this case's data, {username} first received administrative logon privileges on
+  {hostname} at {first}, after the baseline period.
+alternative_explanations:
+  - An administrator who simply had not logged on earlier in the data.
+  - A newly created or newly authorized admin account.
+verification_steps:
+  - Check whether {username} is an expected administrator of {hostname}.
+  - Review group changes for {username} before {first} (PRIV-003).

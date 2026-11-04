@@ -1,0 +1,34 @@
+id: AUTH-008
+version: 1.0.0
+status: stable
+title: Remote interactive logon for {username} from public address {source_ip}
+description: >
+  A Remote Desktop (logon type 10) logon for {username} on {hostname} came from
+  {source_ip}, which is not a private address.
+attack: [T1021.001]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: logon}
+    - {field: extra.logon_type, op: eq, value: 10}
+    - {field: source_ip, op: exists}
+    - not: {field: source_ip, op: cidr, value: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16, 100.64.0.0/10, fc00::/7, fe80::/10, "::1/128"]}
+group_by: [source_ip, username, hostname]
+severity:
+  base: medium
+  reason: Remote Desktop exposed to public addresses is a common entry point.
+confidence:
+  base: medium
+  reason: The logon type and address are recorded; whether exposure is intended is not.
+evidence_strength: direct
+interpretation: >
+  {username} logged on to {hostname} over Remote Desktop from the public address
+  {source_ip} ({event_count} time(s)), which means the host accepts RDP from outside
+  private networks.
+alternative_explanations:
+  - An administrator connecting from home or a hosted jump server.
+  - A managed service provider with an approved public address.
+verification_steps:
+  - Confirm with the account owner and network team that {source_ip} is expected.
+  - Check whether failed logons from {source_ip} preceded this logon (AUTH-003).
+  - Review firewall rules exposing port 3389.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -246,3 +246,120 @@ class EventPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class RunCreate(_Input):
+    # {rule_id: {param: value}}; validated against the rule set.
+    overrides: dict[str, dict[str, int | str]] = Field(default_factory=dict)
+
+
+class RunStarted(BaseModel):
+    run_id: str
+    job_id: str
+
+
+class RunOut(BaseModel):
+    run_id: str
+    case_id: str
+    job_id: str | None
+    status: str
+    triggered_by: str
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    overrides: dict[str, Any]
+    manifest_sha256: str | None
+    inputs_fingerprint: str | None
+    results: dict[str, Any] | None
+    error_code: str | None
+    error_message: str | None
+
+
+class RunDetail(RunOut):
+    manifest: dict[str, Any] | None
+
+
+class FindingSummary(BaseModel):
+    finding_id: str
+    run_id: str
+    case_id: str
+    fingerprint: str
+    rule_id: str
+    rule_version: str
+    title: str
+    description: str
+    severity: str
+    severity_rationale: list[str]
+    confidence: str
+    confidence_rationale: list[str]
+    evidence_strength: str
+    attack_techniques: list[str]
+    first_observed_utc: datetime | None
+    last_observed_utc: datetime | None
+    entities: dict[str, Any]
+    interpretation: str
+    source_files: list[dict[str, Any]]
+    related_finding_ids: list[str]
+    event_count: int
+    status: str
+    analyst_notes: str | None
+    status_carried_from: str | None
+    updated_by: str | None
+    updated_at: datetime | None
+
+
+class FindingEvidenceEvent(BaseModel):
+    event_id: str
+    role: str
+    # False when the event no longer exists (e.g. the file was re-parsed differently).
+    present: bool
+    timestamp_utc: datetime | None
+    timestamp_original: str | None
+    timezone_assumption: str | None
+    source_file_id: str | None
+    hostname: str | None
+    username: str | None
+    source_ip: str | None
+    destination_ip: str | None
+    destination_port: int | None
+    event_type: str | None
+    event_outcome: str | None
+    event_code: str | None
+    message: str | None
+
+
+class FindingDetail(FindingSummary):
+    observed_evidence: dict[str, Any]
+    alternative_explanations: list[str]
+    verification_steps: list[str]
+    evidence_events: list[FindingEvidenceEvent]
+    evidence_total: int
+    evidence_offset: int
+
+
+class FindingUpdate(_Input):
+    status: Literal["open", "investigating", "confirmed", "false_positive", "resolved"] | None = (
+        None
+    )
+    analyst_notes: str | None = Field(default=None, max_length=20_000)
+
+    @field_validator("status")
+    @classmethod
+    def _status_not_null(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("cannot be null")
+        return value
+
+
+class RuleOut(BaseModel):
+    rule_id: str
+    version: str
+    status: str
+    type: str
+    title: str
+    description: str
+    attack: list[str]
+    base_severity: str
+    base_confidence: str
+    evidence_strength: str
+    params: dict[str, dict[str, Any]]

@@ -1,0 +1,31 @@
+id: NET-002
+version: 1.0.0
+status: stable
+title: Burst of denied connections from {source_ip}
+description: "{count} connections from {source_ip} were denied by a firewall within {params.window} windows."
+attack: [T1046]
+type: threshold
+filter:
+  all:
+    - {field: event_type, op: eq, value: connection_denied}
+group_by: [source_ip]
+params:
+  min_denied: {type: integer, default: 100, minimum: 2, description: Denied connections needed within the window}
+  window: {type: duration, default: 10m, description: Sliding time window}
+threshold: {count: min_denied, window: window, count_duplicates_once: true}
+severity:
+  base: low
+  reason: Blocked traffic did not reach its target.
+confidence:
+  base: medium
+  reason: The firewall records the denials explicitly.
+evidence_strength: direct
+interpretation: >
+  The firewall denied many connections from {source_ip} between {first} and {last},
+  consistent with scanning or repeated attempts against blocked services.
+alternative_explanations:
+  - A misconfigured client retrying a blocked service.
+  - Background internet scanning, which is constant on public addresses.
+verification_steps:
+  - Check which destination ports were targeted (top values in the evidence).
+  - Look for allowed connections from the same source.

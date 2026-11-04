@@ -1,0 +1,41 @@
+id: AUTH-004
+version: 1.0.0
+status: stable
+title: Windows logon failure burst from {source_ip} on {hostname}
+description: >
+  {count} failed Windows logons (event 4625) from {source_ip} were recorded on {hostname}
+  within {params.window} windows, for {distinct.username} account name(s).
+attack: [T1110]
+applies_to: [windows_evtx, windows_evtx_export]
+type: threshold
+filter:
+  all:
+    - {field: event_type, op: eq, value: logon_failed}
+    - {field: event_code, op: eq, value: "4625"}
+group_by: [source_ip, hostname]
+params:
+  min_failures: {type: integer, default: 10, minimum: 2, description: Failed logons needed within the window}
+  window: {type: duration, default: 5m, description: Sliding time window}
+threshold: {count: min_failures, window: window, count_duplicates_once: true}
+severity:
+  base: medium
+  reason: A burst of failed logons is an attack attempt or a misconfiguration, with unknown outcome.
+confidence:
+  base: medium
+  reason: Failed logon records are explicit; services with stale passwords cause the same burst.
+  modifiers:
+    - when: {all_events: {field: source_ip, op: exists}}
+      raise: 1
+      reason: Every failure names the source address.
+evidence_strength: direct
+interpretation: >
+  Repeated failed logons from {source_ip} were recorded on {hostname} between {first}
+  and {last}, consistent with password guessing against Windows accounts.
+alternative_explanations:
+  - A service or scheduled task running with an outdated password.
+  - Mapped drives or cached credentials retrying after a password change.
+  - An authorized security test.
+verification_steps:
+  - Check the failure sub-status codes (wrong password vs unknown user) in the evidence.
+  - Look for a successful logon from {source_ip} after the burst (AUTH-003).
+  - Identify the process or workstation named in the events.

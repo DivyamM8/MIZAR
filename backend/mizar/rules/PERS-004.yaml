@@ -1,0 +1,28 @@
+id: PERS-004
+version: 1.0.0
+status: stable
+title: Crontab of {crontab_of} changed by {username} on {hostname}
+description: "{username} replaced or deleted the crontab of {crontab_of} on {hostname} ({event_count} time(s))."
+attack: [T1053.003]
+type: match
+filter:
+  all:
+    - {field: event_type, op: in, value: [crontab_replaced, crontab_deleted]}
+group_by: [username, hostname]
+entities: [extra.crontab_of]
+severity:
+  base: low
+  reason: Crontab edits are routine; unexpected ones can schedule code.
+confidence:
+  base: medium
+  reason: The change is recorded; its content is not.
+evidence_strength: direct
+interpretation: >
+  The crontab of {crontab_of} on {hostname} was changed. The log does not show the new
+  content, which must be reviewed on the host.
+alternative_explanations:
+  - An administrator editing scheduled jobs.
+  - Configuration management deploying cron entries.
+verification_steps:
+  - Inspect the current crontab of {crontab_of} on {hostname} and its backup copies.
+  - Check which session made the change at {first}.

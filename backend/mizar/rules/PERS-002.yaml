@@ -1,0 +1,31 @@
+id: PERS-002
+version: 1.0.0
+status: stable
+title: Service {service_name} installed on {hostname}
+description: "A new service {service_name} ({image_path|service_file}) was installed on {hostname} at {first}."
+attack: [T1543.003]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: service_installed}
+entities: [extra.service_name, extra.image_path, extra.service_file, extra.service_account]
+severity:
+  base: medium
+  reason: Services run automatically, often with system privileges.
+confidence:
+  base: medium
+  reason: The installation is recorded explicitly; software installs create services routinely.
+  modifiers:
+    - when: {any_event: {any: [{field: extra.image_path, op: regex, value: '(?i)\\(?:programdata|users\\public|temp|appdata|windows\\temp)\\'}, {field: extra.service_file, op: regex, value: '(?i)\\(?:programdata|users\\public|temp|appdata|windows\\temp)\\'}]}}
+      raise: 1
+      reason: The service binary is in a user-writable or temporary directory.
+evidence_strength: direct
+interpretation: >
+  The service {service_name} was installed on {hostname}. New services can be used to
+  run code automatically with high privileges after every restart.
+alternative_explanations:
+  - Installation or update of legitimate software.
+  - Remote administration tools that install a temporary service.
+verification_steps:
+  - Check the binary path, its signature and hash.
+  - Identify which session or process installed the service.

@@ -1,0 +1,25 @@
+id: NET-003
+version: 1.0.0
+status: stable
+title: "Zeek notice {event_code}"
+description: Zeek raised the notice {event_code} {event_count} time(s) for {source_ip}.
+attack: [T1046]
+applies_to: [zeek]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: zeek_notice}
+group_by: [event_code, source_ip]
+entities: [extra.msg]
+severity:
+  base: informational
+  reason: Passed through from Zeek's own detection logic; MIZAR does not re-evaluate it.
+confidence:
+  base: medium
+  reason: Depends on the Zeek script that raised the notice.
+evidence_strength: direct
+interpretation: "Zeek reported {event_code}: {msg}."
+alternative_explanations:
+  - The notice may be tuned for a different environment and fire on normal traffic.
+verification_steps:
+  - Read the Zeek script documentation for {event_code} and the connection it refers to.

@@ -1,0 +1,33 @@
+id: AUTH-007
+version: 1.0.0
+status: stable
+title: Logon for {username} from a source first seen after the baseline ({source_ip})
+description: >
+  A successful logon for {username} from {source_ip} was first recorded after the first
+  {params.baseline} of this case's logon data, with no earlier logon from that address.
+attack: [T1078]
+type: first_seen
+filter:
+  all:
+    - {field: event_type, op: eq, value: logon}
+    - {field: event_outcome, op: eq, value: success}
+    - {field: source_ip, op: exists}
+first_seen: {key: [username, source_ip], baseline: baseline}
+params:
+  baseline: {type: duration, default: 24h, description: Initial period of the data treated as normal}
+severity:
+  base: low
+  reason: A new source for an account is unusual but common for travel, new devices or new networks.
+confidence:
+  base: low
+  reason: Rarity is judged only within this case's data, not the account's full history.
+evidence_strength: inferred
+interpretation: >
+  Within the data in this case, {username} had not logged on from {source_ip} before
+  {first}. The case data may not cover the account's full history.
+alternative_explanations:
+  - The user started working from a new location, VPN or device.
+  - The case data starts too late to include earlier logons from this address.
+verification_steps:
+  - Ask the account owner whether the logon from {source_ip} was theirs.
+  - Check what the session did after the logon.

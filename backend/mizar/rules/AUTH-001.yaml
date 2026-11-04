@@ -1,0 +1,44 @@
+id: AUTH-001
+version: 1.0.0
+status: stable
+title: Possible SSH brute force from {source_ip} against {hostname}
+description: >
+  {count} failed SSH authentication attempts from {source_ip} to {hostname} were
+  recorded within {params.window} windows, involving {distinct.username} account name(s).
+attack: [T1110.001]
+applies_to: [linux_auth]
+type: threshold
+filter:
+  all:
+    - {field: event_type, op: eq, value: logon_failed}
+    - {field: process_name, op: in, value: [sshd, sshd-session]}
+group_by: [source_ip, hostname]
+params:
+  min_failures: {type: integer, default: 20, minimum: 2, description: Failed attempts needed within the window}
+  window: {type: duration, default: 10m, description: Sliding time window}
+threshold: {count: min_failures, window: window, count_duplicates_once: true}
+severity:
+  base: medium
+  reason: Repeated password guessing is an attack attempt with unknown outcome.
+confidence:
+  base: medium
+  reason: The failure records are explicit, but automation with stale credentials produces the same pattern.
+  modifiers:
+    - when: {count_gte: 100}
+      raise: 1
+      reason: The volume is far above what a mistyping user or misconfigured job produces.
+    - when: {any_event: {field: source_ip, op: cidr, value: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, fc00::/7, fe80::/10]}}
+      lower: 1
+      reason: The source address is internal, where misconfigured automation is common.
+evidence_strength: direct
+interpretation: >
+  The address {source_ip} made repeated failed SSH logon attempts against {hostname}
+  between {first} and {last}. The pattern is consistent with automated password guessing.
+alternative_explanations:
+  - Automation or monitoring configured with an outdated password.
+  - An authorized vulnerability scan or penetration test.
+  - Several users sharing one NAT or proxy address.
+verification_steps:
+  - Check whether any logon from {source_ip} succeeded afterwards (see AUTH-003 findings).
+  - Ask the network owner whether {source_ip} is an authorized scanner or automation host.
+  - Review firewall and other hosts' logs for the same address.

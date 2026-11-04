@@ -1,0 +1,30 @@
+id: WEB-003
+version: 1.0.0
+status: stable
+title: Path traversal or file inclusion patterns from {source_ip}
+description: "{event_count} requests from {source_ip} tried to reach files outside the web root."
+attack: [T1190]
+type: match
+filter:
+  all:
+    - {field: event_type, op: eq, value: http_request}
+    - any:
+        - {field: extra.url_decoded, op: regex, value: '(?:\.\./|\.\.\\|/etc/(?:passwd|shadow|hosts)\b|boot\.ini|win\.ini|php://(?:filter|input)|file://|/proc/self/environ)'}
+        - {field: extra.url, op: regex, value: '(?:%2e%2e(?:%2f|%5c|/)|\.\.%2f|\.\.%5c)'}
+group_by: [source_ip]
+severity:
+  base: medium
+  reason: Traversal attempts aim to read files such as credentials or configuration.
+confidence:
+  base: medium
+  reason: These patterns rarely occur in legitimate URLs.
+evidence_strength: direct
+interpretation: >
+  Requests from {source_ip} used ../ sequences or local file names in the URL between
+  {first} and {last}, consistent with attempts to read files outside the web root.
+alternative_explanations:
+  - An authorized security scan.
+  - A badly built client constructing relative paths.
+verification_steps:
+  - Check which matching requests returned 200 and their response sizes (WEB-007).
+  - Test whether the targeted parameter actually serves local files.
