@@ -3,50 +3,39 @@
 Local log analysis and investigation tool for SOC analysts, incident
 responders, and digital forensic investigators.
 
-> Status: **Phase 6**. Evidence intake, parsing into the normalized event
+> Status: **Phase 7**. Evidence intake, parsing into a normalized event
 > schema, 32 detection rules with reproducible analysis runs, a correlated
-> timeline with entities and sessions, the web UI, and PDF, JSON and CSV
-> reports are implemented. Hardening and packaging come next. See
-> [docs/DESIGN.md](docs/DESIGN.md), [docs/event-schema.md](docs/event-schema.md)
-> and [docs/rules.md](docs/rules.md).
+> timeline with entities and sessions, a web UI, and PDF, JSON and CSV reports.
+> See the [user guide](docs/USER_GUIDE.md), the [design](docs/DESIGN.md), the
+> [event schema](docs/event-schema.md) and the [rules](docs/rules.md).
 
 ## Requirements
 
 - Python 3.13 or newer (tested on 3.14)
-- Node.js 20 or newer to build the web UI (tested on 24)
+- Node.js 20 or newer, to build the web UI (tested on 24)
 - Linux or macOS
 
-## Setup
+## Install
 
 ```bash
-cd backend
-python3 -m venv .venv
-.venv/bin/pip install -c requirements.lock -e ".[dev]"
+scripts/install.sh
 ```
 
-Build the web UI once (and after updates):
+This builds the web UI and a Python wheel with the UI inside
+(`scripts/build.sh`), installs it with the tested dependency versions into
+`~/.local/share/mizar-app`, and links `mizar` into `~/.local/bin`. Run it again
+to upgrade. With `pipx`: `scripts/build.sh && pipx install dist/mizar-*.whl`.
+
+## Use
 
 ```bash
-cd frontend
-npm ci
-npm run build
+mizar serve          # then open http://127.0.0.1:8730
 ```
 
-## Run
-
-```bash
-backend/.venv/bin/mizar serve      # http://127.0.0.1:8730, starts the worker too
-backend/.venv/bin/mizar worker     # background worker only (normally started by serve)
-backend/.venv/bin/mizar migrate    # apply database migrations only
-```
-
-Open http://127.0.0.1:8730 in a browser. MIZAR listens on loopback only. It refuses to start with a non-loopback
-`MIZAR_HOST`.
-
-Reports: after an analysis run, open the case's **Reports** tab to produce a PDF
-investigation report (Draft or Final), a JSON export with the full run
-manifest and evidence records, or a CSV bundle for spreadsheets. Each export
-lists its SHA-256 so the handed-over file can be identified later.
+MIZAR listens on 127.0.0.1 only and refuses a non-loopback `MIZAR_HOST`.
+`mizar serve` also runs the background worker; `mizar worker` and
+`mizar migrate` run those parts alone. The [user guide](docs/USER_GUIDE.md)
+covers the workflow, reports, evidence integrity, backups and troubleshooting.
 
 ### Configuration
 
@@ -57,7 +46,10 @@ lists its SHA-256 so the handed-over file can be identified later.
 | `MIZAR_LOG_LEVEL` | `INFO` | Application log level (JSON to stderr) |
 | `MIZAR_MAX_FILE_BYTES` | 2 GiB | Per-file upload limit |
 | `MIZAR_MAX_CASE_UNCOMPRESSED_BYTES` | 20 GiB | Per-case limit after archive extraction |
+| `MIZAR_JOB_TIMEOUT_SECONDS` | 21600 | Background jobs running longer are stopped |
 | `MIZAR_API_TOKEN` | random per launch | Override the API token (development only) |
+
+All settings are listed in the [user guide](docs/USER_GUIDE.md#11-settings).
 
 The data directory holds case evidence. Keep it on encrypted storage and never
 commit it.
@@ -73,6 +65,17 @@ project under Apache-2.0 (see [fixtures/THIRD_PARTY.md](fixtures/THIRD_PARTY.md)
 
 ## Development
 
+Set up a development environment and build the UI:
+
+```bash
+cd backend
+python3 -m venv .venv
+.venv/bin/pip install -c requirements.lock -e ".[dev]"
+cd ../frontend && npm ci && npm run build
+```
+
+Checks:
+
 ```bash
 cd backend
 .venv/bin/pytest
@@ -83,7 +86,8 @@ cd ../frontend
 npm run typecheck && npm test && npm run build
 ```
 
-UI development with hot reload: run the backend with a fixed token and the Vite
+Run from the checkout with `backend/.venv/bin/mizar serve`. UI development with
+hot reload: run the backend with a fixed token and the Vite
 origin allowed, then start Vite:
 
 ```bash

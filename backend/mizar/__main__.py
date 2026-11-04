@@ -18,6 +18,7 @@ from mizar.core.config import Settings
 from mizar.core.logging import configure_logging
 from mizar.db.engine import make_engine, upgrade_db
 from mizar.evidence.store import EvidenceStore
+from mizar.versions import MIZAR_VERSION
 
 log = logging.getLogger("mizar")
 
@@ -40,6 +41,15 @@ def _prepare(settings: Settings) -> None:
     os.umask(0o077)
     configure_logging(settings.log_level)
     settings.ensure_directories()
+    mode = settings.data_dir.stat().st_mode & 0o777
+    if mode & 0o077:
+        log.warning(
+            "data directory %s is accessible to other users (mode %o); evidence and reports "
+            "may be readable by them. Restrict it with: chmod 700 %s",
+            settings.data_dir,
+            mode,
+            settings.data_dir,
+        )
 
 
 def _store(settings: Settings) -> EvidenceStore:
@@ -157,6 +167,7 @@ def cmd_serve(settings: Settings) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="mizar", description="MIZAR log analyzer")
+    parser.add_argument("--version", action="version", version=f"MIZAR {MIZAR_VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("serve", help="run the local web application (starts the worker too)")
     sub.add_parser("worker", help="run the background job worker only")

@@ -202,6 +202,25 @@ def _finish(engine: Engine, parse_result_id: str, status: str, stats: _Stats, **
         )
 
 
+def abort_parse(engine: Engine, job: dict[str, Any], message: str) -> None:
+    """A timed-out parse: its result fails; events parsed so far are kept, as for a file
+    that failed part-way (DESIGN.md §14.1)."""
+    with engine.begin() as conn:
+        conn.execute(
+            update(parse_results)
+            .where(
+                parse_results.c.source_file_id == job["payload"]["source_file_id"],
+                parse_results.c.status == "running",
+            )
+            .values(
+                status="failed",
+                finished_at=utc_now(),
+                error_code=ErrorCode.JOB_TIMEOUT.value,
+                error_message=message,
+            )
+        )
+
+
 def parse_file_job(ctx: JobContext) -> dict[str, Any]:
     deps = ctx.deps
     file_id: str = ctx.payload["source_file_id"]

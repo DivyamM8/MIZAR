@@ -12,6 +12,7 @@ Pure ASGI middleware so it also wraps responses for unhandled exceptions:
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 from collections.abc import Iterable
 
@@ -26,6 +27,10 @@ log = logging.getLogger(__name__)
 
 TOKEN_HEADER = "x-mizar-token"  # noqa: S105 (header name, not a secret)
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# JSON request bodies are small (the largest is a finding note); evidence uploads stream
+# to disk with their own limits (DESIGN.md D11).
+MAX_JSON_BODY_BYTES = 1024 * 1024
+_UPLOAD_PATH = re.compile(r"^/api/cases/[^/]+/files$")
 
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
@@ -48,6 +53,17 @@ def _host_without_port(host_header: str) -> str:
         end = host.find("]")
         return host[: end + 1] if end != -1 else host
     return host.split(":", 1)[0]
+
+
+def _body_problem(headers: Headers) -> tuple[ErrorCode, str] | None:
+    declared = headers.get("content-length")
+    if declared is None:
+        if "transfer-encoding" in headers:
+            return ErrorCode.LENGTH_REQUIRED, "Request bodies must declare their length."
+        return None
+    if not declared.isdigit() or int(declared) > MAX_JSON_BODY_BYTES:
+        return ErrorCode.REQUEST_TOO_LARGE, "The request body is too large."
+    return None
 
 
 class LocalGuardMiddleware:
@@ -77,6 +93,8 @@ class LocalGuardMiddleware:
             token = headers.get(TOKEN_HEADER, "")
             if not secrets.compare_digest(token.encode(), self.api_token.encode()):
                 return ErrorCode.AUTH_TOKEN_INVALID, "Missing or invalid API token."
+            if not _UPLOAD_PATH.match(scope["path"]):
+                return _body_problem(headers)
         return None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

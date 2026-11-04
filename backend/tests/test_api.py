@@ -107,3 +107,37 @@ def test_unhandled_exception_hides_internals(app: FastAPI, client: TestClient) -
     assert "secret internal detail" not in response.text
     assert response.headers["x-frame-options"] == "DENY"
     assert response.json()["error"]["request_id"] == response.headers["x-request-id"]
+
+
+def test_json_bodies_are_limited(app: FastAPI, client: TestClient) -> None:
+    _add_test_routes(app)
+    headers = {TOKEN_HEADER: TEST_TOKEN, "Content-Type": "application/json"}
+    big = b'{"name": "' + b"a" * (1024 * 1024) + b'"}'
+    too_large = client.post("/api/_test/echo", content=big, headers=headers)
+    assert too_large.status_code == 413
+    _assert_envelope(too_large.json(), "REQUEST_TOO_LARGE")
+
+    def chunks():  # no Content-Length: sent chunked
+        yield b'{"name": "a"}'
+
+    chunked = client.post("/api/_test/echo", content=chunks(), headers=headers)
+    assert chunked.status_code == 411
+    _assert_envelope(chunked.json(), "LENGTH_REQUIRED")
+    ok = client.post(
+        "/api/_test/echo", json={"name": "a" * 1000}, headers={TOKEN_HEADER: TEST_TOKEN}
+    )
+    assert ok.status_code == 200
+
+
+def test_uploads_are_not_limited_by_the_json_cap(client: TestClient) -> None:
+    case = client.post(
+        "/api/cases", json={"name": "c", "analyst_name": "a"}, headers={TOKEN_HEADER: TEST_TOKEN}
+    ).json()
+    body = b"Oct 27 08:00:00 srv01 sshd[1]: x\n" * 40_000  # ~1.3 MB
+    response = client.post(
+        f"/api/cases/{case['case_id']}/files",
+        params={"filename": "auth.log"},
+        content=body,
+        headers={TOKEN_HEADER: TEST_TOKEN},
+    )
+    assert response.status_code == 201, response.text

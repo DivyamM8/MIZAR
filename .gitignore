@@ -10,6 +10,10 @@ __pycache__/
 htmlcov/
 node_modules/
 frontend/dist/
+# Built by scripts/build.sh
+backend/mizar/web/
+dist/
+backend/build/
 # Local data directories must never be committed: they hold case evidence.
 data/
 *.db

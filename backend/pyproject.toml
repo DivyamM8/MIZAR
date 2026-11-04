@@ -44,7 +44,7 @@ mizar = "mizar.__main__:main"
 include = ["mizar*"]
 
 [tool.setuptools.package-data]
-mizar = ["db/migrations/*.py", "db/migrations/*.mako", "db/migrations/versions/*.py", "schemas/*.json", "rules/*.yaml", "reporting/fonts/*.ttf", "reporting/fonts/LICENSE-DejaVu", "reporting/fonts/README.md"]
+mizar = ["db/migrations/*.py", "db/migrations/*.mako", "db/migrations/versions/*.py", "schemas/*.json", "rules/*.yaml", "reporting/fonts/*.ttf", "reporting/fonts/LICENSE-DejaVu", "reporting/fonts/README.md", "web/*", "web/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -71,6 +72,13 @@ class JobContext:
 
 Handler = Callable[[JobContext], dict[str, Any]]
 HANDLERS: dict[str, Handler] = {}
+# Called when a job of this type is stopped for running too long, to record the outcome
+# on the records the job was working on (the handler itself gets no chance to).
+AbortHook = Callable[[Engine, dict[str, Any], str], None]
+ABORT_HOOKS: dict[str, AbortHook] = {}
+# Exit status of a worker that stopped a timed-out job; `mizar serve` starts a new one.
+EXIT_JOB_TIMEOUT = 75
+_hard_exit: Callable[[int], None] = os._exit
 
 
 def register(job_type: str) -> Callable[[Handler], Handler]:
@@ -81,6 +89,45 @@ def register(job_type: str) -> Callable[[Handler], Handler]:
         return handler
 
     return decorator
+
+
+def register_abort(job_type: str) -> Callable[[AbortHook], AbortHook]:
+    def decorator(hook: AbortHook) -> AbortHook:
+        ABORT_HOOKS[job_type] = hook
+        return hook
+
+    return decorator
+
+
+def _watchdog(deps: WorkerDeps, job: dict[str, Any], done: threading.Event) -> None:
+    """Stop a job that runs past the time limit.
+
+    A handler stuck in native code (e.g. a parser on hostile input) cannot be
+    interrupted from Python, so the job is recorded as failed and the worker
+    process exits; the supervisor in `mizar serve` starts a fresh worker. The job
+    is not retried. SQLite rolls back whatever the handler had not committed.
+    """
+    limit = deps.settings.job_timeout_seconds
+    if done.wait(limit):
+        return
+    job_id = job["job_id"]
+    message = (
+        f"The job ran longer than the {limit // 60}-minute limit and was stopped "
+        "(MIZAR_JOB_TIMEOUT_SECONDS). The input may be malformed or too large."
+    )
+    log.error(
+        "job timed out after %d s; restarting the worker",
+        limit,
+        extra={"job_id": job_id, "case_id": job["case_id"]},
+    )
+    try:
+        queue.mark_failed(deps.engine, job_id, ErrorCode.JOB_TIMEOUT, message)
+        hook = ABORT_HOOKS.get(job["job_type"])
+        if hook is not None:
+            hook(deps.engine, job, message)
+    except Exception:
+        log.exception("could not record the timeout", extra={"job_id": job_id})
+    _hard_exit(EXIT_JOB_TIMEOUT)
 
 
 def _heartbeat_loop(engine: Engine, job_id: str, done: threading.Event) -> None:
@@ -103,6 +150,8 @@ def run_one(deps: WorkerDeps, stop: threading.Event) -> bool:
     done = threading.Event()
     beat = threading.Thread(target=_heartbeat_loop, args=(deps.engine, job_id, done), daemon=True)
     beat.start()
+    watchdog = threading.Thread(target=_watchdog, args=(deps, job, done), daemon=True)
+    watchdog.start()
     try:
         handler = HANDLERS.get(job["job_type"])
         if handler is None:

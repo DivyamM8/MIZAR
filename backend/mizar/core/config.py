@@ -17,7 +17,11 @@ def _default_data_dir() -> Path:
 
 
 def _default_frontend_dir() -> Path:
-    # The built web UI next to the backend in a source checkout (frontend/dist).
+    # An installed package carries the UI in mizar/web (scripts/build.sh); a source
+    # checkout uses frontend/dist next to the backend.
+    packaged = Path(__file__).resolve().parents[1] / "web"
+    if (packaged / "index.html").is_file():
+        return packaged
     return Path(__file__).resolve().parents[3] / "frontend" / "dist"
 
 
@@ -46,6 +50,10 @@ class Settings(BaseSettings):
     compression_ratio_floor_bytes: int = Field(default=10 * 1024**2, ge=0)
     # Uploads and extraction stop before free disk space drops below this.
     min_free_disk_bytes: int = Field(default=1 * GIB, ge=0)
+    # A job running longer is stopped and recorded as JOB_TIMEOUT, so input that hangs a
+    # parser cannot block the queue (DESIGN.md §15). Measured: parsing a 2 GB case takes
+    # well under an hour.
+    job_timeout_seconds: int = Field(default=6 * 3600, ge=60)
 
     log_level: str = "INFO"
     # Built web UI (npm run build). Missing: the API still runs and "/" explains how to build it.

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | **Approved for implementation** |
-| Document version | 0.8.0 |
+| Document version | 0.9.0 |
 | Licence | Apache-2.0 |
 | Date | 2026-10-29 |
 | Event schema version | 1.0.0 (proposed) |
@@ -111,6 +111,9 @@ investigators. **Secondary:** CTF participants and learners.
 | D42 | PDF size | Supporting events per finding default to 10 (1–500 selectable); the PDF timeline lists only the events shown in the findings section; full lists are in JSON/CSV | Measured on the demo case (31 findings): 86 pages with every linked event, 51 with the defaults; a port scan finding alone linked 344 near-identical rows |
 | D43 | Export files | Written as `exports/<case>/.<id>.partial`, fsynced, made read-only and renamed into place; SHA-256 and size recorded and shown; partial files removed on failure, cancellation, or when a crashed job is retried | `exports/` never holds a partial report (§14.1); analysts can record the hash of what they handed over |
 | D44 | Export layouts | JSON: `report.json` (format `mizar.report` 1.0.0) with case, run manifest and results, source files, findings and referenced events with their original records; with "all events", a ZIP adding `events.ndjson`. CSV: a ZIP of `findings.csv`, `events.csv`, `source_files.csv` (UTF-8 with BOM) and `export.json`; fixed member timestamps | One file per download; streaming writers keep memory flat (≈160 MiB at 200k events) |
+| D45 | Packaging | A Python wheel with the built UI inside (`mizar/web`), built by `scripts/build.sh` and installed by `scripts/install.sh` into its own virtual environment with the tested dependency versions (`constraints.txt`); `pipx` also works. No container image | Chosen in review (Q8): no container runtime needed, and the loopback-only bind stays as it is (a container would have to listen on all interfaces inside) |
+| D46 | Job time limit | A watchdog thread per job: past `MIZAR_JOB_TIMEOUT_SECONDS` (default 6 h) the job is recorded as `JOB_TIMEOUT` (parse results and unprocessed uploads too), not retried, and the worker process exits; `mizar serve` starts a fresh worker. `mizar serve` turns SIGTERM into a normal exit so it always stops its worker, and a worker whose server died stops itself | A handler stuck in native code (a parser on hostile input) cannot be interrupted from Python; before, one such file blocked every later job |
+| D47 | Request size | State-changing API requests other than uploads must declare a length of at most 1 MiB (`REQUEST_TOO_LARGE`, `LENGTH_REQUIRED`) | Uploads stream to disk under their own limits; JSON bodies are small |
 
 ---
 
@@ -842,7 +845,7 @@ Every error has a stable code, a human message, and optional details.
 | Parse – file | `FORMAT_UNDETECTED` (→ generic parser), `EVTX_CORRUPT_HEADER`, `ENCODING_UNSUPPORTED` | `ParseResult.status = failed`, records parsed so far kept |
 | Parse – record | warning codes (§5.1) | Record kept with `partial`/`unparsed` |
 | Detection | `RULE_INVALID` (startup), `RULE_RUNTIME_ERROR`, `REGEX_TIMEOUT` | Failing rule skipped and recorded in run `results.rule_errors`; run finishes as `succeeded_with_errors` |
-| Job | `JOB_CRASHED`, `JOB_CANCELLED` | Worker heartbeat; stale `running` jobs marked failed at startup; idempotent retry |
+| Job | `JOB_CRASHED`, `JOB_CANCELLED`, `JOB_TIMEOUT` | Worker heartbeat; stale `running` jobs marked failed at startup; idempotent retry; jobs past the time limit fail without retry (D46) |
 | Report | `REPORT_RENDER_FAILED` | Error recorded; no partial file left in `exports/` |
 
 ### 14.2 API error envelope
@@ -883,7 +886,10 @@ Uploaded logs are attacker-influenced input.
 | ReDoS | Rule regexes use `google-re2` (linear-time) where available, else a timeout. Parser regexes reviewed and anchored. Line length cap |
 | Resource exhaustion | Per-file and per-case size limits, streaming everywhere, bounded batch sizes, disk-space pre-check |
 | CSRF / drive-by from other websites | Binds `127.0.0.1` only. `Host` header allowlist (prevents DNS rebinding). Origin check plus a random per-launch API token injected into the SPA, required on state-changing requests |
-| Malformed binary input (EVTX) | Parsing happens in the worker process, so a crash cannot take down the API. A per-file timeout is recorded as an error |
+| Malformed binary input (EVTX) | Parsing happens in the worker process, so a crash cannot take down the API. A job that runs past the time limit is recorded as `JOB_TIMEOUT` and the worker is restarted (D46) |
+| Oversized API requests | JSON bodies are limited to 1 MiB (D47) |
+| Other local users | Data directory created `0700` with umask `077`; a warning at start-up if it is accessible to others |
+| Vulnerable dependencies | `pip-audit` (Python, against the lock file) and `npm audit` run in the hardening pass: no known vulnerabilities (2026-11-04) |
 | Evidence tampering by the app | Evidence files are `0444` and only opened read-only. Hashes re-verified per run |
 | Filename injection | Original names stored verbatim, displayed escaped, never used as filesystem paths |
 
@@ -1005,7 +1011,7 @@ Each phase ends runnable and tested, with a check-in before the next one.
 | 4 | Correlation: entities, links, sessions, timeline API |
 | 5 | Frontend: all §17 pages |
 | 6 | PDF / JSON / CSV export |
-| 7 | Hardening pass (§15 verification), performance test, packaging (compose), user docs |
+| 7 | Hardening pass (§15 verification), performance test, packaging (D45), user docs |
 
 ---
 
@@ -1020,3 +1026,4 @@ Each phase ends runnable and tested, with a check-in before the next one.
 | Q5 | Branding | Corner watermark only (D14) |
 | Q6 | Case deletion | Delete everything (D15) |
 | Q7 | Licence | Apache-2.0 (D16) |
+| Q8 | Packaging (2026-11-04) | Python package, no container (D45) |

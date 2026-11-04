@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import delete
+from sqlalchemy import Engine, delete, select
 
 from mizar.core.errors import ErrorCode, MizarError
 from mizar.db.tables import source_files
@@ -31,6 +31,30 @@ from mizar.ingest.parse import queue_parse
 from mizar.jobs.worker import JobCancelled, JobContext, WorkerStopping
 
 log = logging.getLogger(__name__)
+
+
+def abort_ingest(engine: Engine, job: dict[str, Any], message: str) -> None:
+    """A timed-out ingest: files of this upload not yet processed are marked failed."""
+    failure = evidence.message("error", ErrorCode.JOB_TIMEOUT, message)
+    with engine.begin() as conn:
+        pending = [job["payload"]["source_file_id"]]
+        while pending:
+            file_id = pending.pop()
+            row = evidence.get_source_file_conn(conn, file_id)
+            if row["status"] in ("stored", "expanding"):
+                evidence.update_source_file(
+                    conn,
+                    file_id,
+                    status="failed",
+                    validation_messages=[*row["validation_messages"], failure],
+                )
+            pending.extend(
+                conn.execute(
+                    select(source_files.c.source_file_id).where(
+                        source_files.c.parent_file_id == file_id
+                    )
+                ).scalars()
+            )
 
 
 def ingest_file_job(ctx: JobContext) -> dict[str, Any]:

@@ -1,14 +1,19 @@
 import threading
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import Engine, update
 
 from mizar.core.errors import ErrorCode, MizarError
 from mizar.db.tables import jobs
-from mizar.jobs import queue
+from mizar.ingest import parse as parse_module
+from mizar.jobs import queue, worker
 from mizar.jobs.worker import HANDLERS, JobContext, WorkerDeps, run_one
+
+from .analysis_helpers import new_case, upload
 
 
 def _enqueue(engine: Engine, job_type: str = "test_job", payload: Any = None) -> str:
@@ -128,3 +133,78 @@ def test_recent_heartbeat_is_not_stale(engine: Engine) -> None:
     _enqueue(engine)
     queue.claim_next(engine)
     assert queue.recover_stale(engine, timedelta(minutes=5)) == (0, 0)
+
+
+class _WorkerExited(BaseException):
+    """Stands in for the process exit, which a test cannot perform."""
+
+
+@pytest.fixture
+def short_timeout(
+    deps: WorkerDeps, monkeypatch: pytest.MonkeyPatch
+) -> tuple[WorkerDeps, list[int]]:
+    """Worker deps with a 1 s job limit; the hard exit is recorded instead of performed."""
+    exits: list[int] = []
+    monkeypatch.setattr(worker, "_hard_exit", exits.append)
+    settings = deps.settings.model_copy(update={"job_timeout_seconds": 1})
+    return WorkerDeps(settings, deps.engine, deps.store), exits
+
+
+def _hang_until_exit(exits: list[int]) -> None:
+    """Block like a handler stuck in native code, until the watchdog has given up."""
+    for _ in range(100):
+        if exits:
+            raise _WorkerExited
+        threading.Event().wait(0.05)
+    raise AssertionError("watchdog did not fire")
+
+
+def test_hung_job_times_out(
+    short_timeout: tuple[WorkerDeps, list[int]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deps, exits = short_timeout
+    monkeypatch.setitem(HANDLERS, "hang", lambda ctx: _hang_until_exit(exits))
+    job_id = _enqueue(deps.engine, "hang")
+    with pytest.raises(_WorkerExited):
+        run_one(deps, threading.Event())
+    assert exits == [worker.EXIT_JOB_TIMEOUT]
+    job = queue.get_job(deps.engine, job_id)
+    assert job["status"] == "failed" and job["error_code"] == "JOB_TIMEOUT"
+    assert "MIZAR_JOB_TIMEOUT_SECONDS" in job["error_message"]
+    # Not retried: recovery after the restart leaves the failed job alone.
+    assert queue.recover_stale(deps.engine, timedelta(0)) == (0, 0)
+
+
+def test_fast_job_is_not_stopped(
+    short_timeout: tuple[WorkerDeps, list[int]], handler: list[JobContext]
+) -> None:
+    deps, exits = short_timeout
+    job_id = _enqueue(deps.engine)
+    assert run_one(deps, threading.Event())
+    threading.Event().wait(1.3)
+    assert exits == [] and queue.get_job(deps.engine, job_id)["status"] == "succeeded"
+
+
+def test_parse_timeout_fails_the_parse_result(
+    api: TestClient,
+    run_jobs: Callable[[], int],
+    short_timeout: tuple[WorkerDeps, list[int]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deps, exits = short_timeout
+    case_id = new_case(api)
+    upload(
+        api,
+        case_id,
+        b"Oct 27 08:00:00 srv01 sshd[1]: Accepted password for a from 10.0.0.1 port 1 ssh2\n",
+        "auth.log",
+        timezone_hint="UTC",
+        year_hint=2026,
+    )
+    run_one(deps, threading.Event())  # ingest, then the parse job is queued
+    monkeypatch.setattr(parse_module, "_flush", lambda engine, batch: _hang_until_exit(exits))
+    with pytest.raises(_WorkerExited):
+        run_one(deps, threading.Event())
+    files = api.get(f"/api/cases/{case_id}/files").json()
+    parse = files[0]["parse"]
+    assert parse["status"] == "failed" and parse["error_code"] == "JOB_TIMEOUT"
