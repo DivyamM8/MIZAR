@@ -3,15 +3,16 @@
 Local log analysis and investigation tool for SOC analysts, incident
 responders, and digital forensic investigators.
 
-> Status: **Phase 4**. Evidence intake, parsing into the normalized event
-> schema, 32 detection rules with reproducible analysis runs, and a correlated
-> timeline with entities and sessions are implemented (API only). The web UI
-> and reporting come next. See [docs/DESIGN.md](docs/DESIGN.md),
+> Status: **Phase 5**. Evidence intake, parsing into the normalized event
+> schema, 32 detection rules with reproducible analysis runs, a correlated
+> timeline with entities and sessions, and the web UI are implemented. PDF and
+> JSON/CSV reports come next. See [docs/DESIGN.md](docs/DESIGN.md),
 > [docs/event-schema.md](docs/event-schema.md) and [docs/rules.md](docs/rules.md).
 
 ## Requirements
 
 - Python 3.13 or newer (tested on 3.14)
+- Node.js 20 or newer to build the web UI (tested on 24)
 - Linux or macOS
 
 ## Setup
@@ -22,6 +23,14 @@ python3 -m venv .venv
 .venv/bin/pip install -c requirements.lock -e ".[dev]"
 ```
 
+Build the web UI once (and after updates):
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
 ## Run
 
 ```bash
@@ -30,7 +39,7 @@ backend/.venv/bin/mizar worker     # background worker only (normally started by
 backend/.venv/bin/mizar migrate    # apply database migrations only
 ```
 
-MIZAR listens on loopback only. It refuses to start with a non-loopback
+Open http://127.0.0.1:8730 in a browser. MIZAR listens on loopback only. It refuses to start with a non-loopback
 `MIZAR_HOST`.
 
 ### Configuration
@@ -63,7 +72,23 @@ cd backend
 .venv/bin/pytest
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 .venv/bin/mypy
+
+cd ../frontend
+npm run typecheck && npm test && npm run build
 ```
+
+UI development with hot reload: run the backend with a fixed token and the Vite
+origin allowed, then start Vite:
+
+```bash
+MIZAR_API_TOKEN=dev-token-at-least-32-characters-long \
+MIZAR_EXTRA_ALLOWED_ORIGINS='["http://localhost:5173"]' backend/.venv/bin/mizar serve
+cd frontend && MIZAR_API_TOKEN=dev-token-at-least-32-characters-long npm run dev
+```
+
+Browser tour with screenshots (uses the installed Google Chrome): seed a running
+server with `python3 frontend/e2e/seed.py URL TOKEN fixtures/scenarios`, then
+`MIZAR_URL=URL MIZAR_CASE=<case id> npm run screenshots` in `frontend/`.
 
 ## Licence
 

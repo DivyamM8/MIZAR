@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | **Approved for implementation** |
-| Document version | 0.6.0 |
+| Document version | 0.7.0 |
 | Licence | Apache-2.0 |
 | Date | 2026-10-29 |
 | Event schema version | 1.0.0 (proposed) |
@@ -102,6 +102,10 @@ investigators. **Secondary:** CTF participants and learners.
 | D33 | Sessions | Duplicate-free events sharing (`hostname`, `session_id`) form a session group, split when consecutive events are more than 8 h apart; Windows shared logon IDs (0x3e7, 0x3e4, 0x3e5, 0x0) and one-event sessions are excluded | sshd PIDs and auditd session numbers are reused over time; SYSTEM would otherwise be one giant session |
 | D34 | Case index | Entities, sessions and process links are rebuilt for the whole case by one background job, queued after parsing (at most one waiting per case) | Always consistent with the current events; cost ≈ 12–15 s per 1M events |
 | D35 | Short write transactions | Heavy rebuilds compute in read transactions and swap results in one short write; SQLite waits up to 30 s for the write lock | Measured: 148 API writes during a 1M-event index rebuild, 0 errors (worst wait 5.6 s); before, writers failed after 5 s |
+| D36 | UI token delivery | The backend fills a `<meta name="mizar-token">` tag when it serves `index.html`; the app sends it on state-changing requests | No inline script is needed (strict CSP), and other origins cannot read the page |
+| D37 | UI dependencies | Runtime: React, React DOM, React Router only (all MIT). Data fetching, histogram (SVG) and styles are written in the project | Small supply-chain surface for a forensic tool; no CDN, no UI or chart libraries |
+| D38 | Time display | The UI shows every time in UTC with an explicit `Z`, never in the browser's zone, plus the original timestamp text and its time basis | Investigators compare times across sources and reports |
+| D39 | UI checks | TypeScript strict type check, Vitest unit tests, and a Playwright tour driving installed Google Chrome over every page against a seeded server, failing on any console error or 5xx; screenshots are reviewed | ESLint is not used; the strict compiler settings cover unused code and unsafe indexing |
 
 ---
 
@@ -910,7 +914,10 @@ GET    /api/rules                          catalogue with versions and params
 | Rules | Read-only rule catalogue with parameters and descriptions |
 
 Visual language: severity colors are always paired with a text label (never
-color alone). Dark and light themes. All assets are bundled locally (no CDN).
+color alone). Dark and light themes (system default, switchable). All assets are
+bundled locally (no CDN). Log content is always rendered as text, never as
+markup. Filters and selections live in the URL, so views can be shared and
+survive a reload; the event drawer opens from any table via `?event=<id>`.
 
 ---
 

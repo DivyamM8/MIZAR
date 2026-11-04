@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from sqlalchemy import Engine, text
 
 from mizar.api.errors import install_error_handlers
+from mizar.api.frontend import mount_frontend
 from mizar.api.middleware import LocalGuardMiddleware
 from mizar.api.routes import analysis, cases, correlation, events, files, jobs
 from mizar.core.config import Settings
@@ -68,4 +69,6 @@ def create_app(settings: Settings, engine: Engine, api_token: str) -> FastAPI:
             "rule_format_version": RULE_FORMAT_VERSION,
         }
 
+    # Registered last: its catch-all route must not shadow the API.
+    mount_frontend(app, settings.frontend_dir, api_token)
     return app

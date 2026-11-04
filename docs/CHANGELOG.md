@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Phase 5 — web UI (2026-11-04)
+- React + TypeScript web UI served by `mizar serve`: cases (create, edit,
+  delete with typed confirmation), case overview, evidence (multi-file upload
+  with progress and hints, file tree with hashes, detection, parse statistics,
+  messages, re-parse), findings (prioritized, filtered by run, severity and
+  status), finding detail (rationale, hypothesis, alternatives, verification,
+  sources with hashes, chained findings, evidence events, analyst review),
+  timeline (histogram, filters, lanes, finding markers, cursor paging), event
+  search, entities, sessions, runs (manifest viewer, overrides, comparison
+  by fingerprint) and the rule catalogue.
+- Event drawer with normalized fields, the raw record and whether it still
+  matches its hash, sessions and duplicates, documented links and related events.
+- The backend serves the built UI with the per-launch token in a meta tag; the
+  app shell is the fallback for client-side routes, and API 404s stay JSON.
+- Checks: strict type checking, unit tests, and a browser tour over every page
+  that fails on console errors.
+
 ### Phase 4 — correlation and timeline (2026-11-04)
 - Case index job after parsing: entities (hosts, users, IPs with source and
   destination counts), sessions from shared logon/session IDs, and documented

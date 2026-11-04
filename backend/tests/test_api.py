@@ -34,8 +34,10 @@ def test_security_headers(client: TestClient) -> None:
 
 
 def test_docs_are_disabled(client: TestClient) -> None:
-    assert client.get("/docs").status_code == 404
-    assert client.get("/redoc").status_code == 404
+    # Swagger UI would load assets from a CDN; these paths are not the API docs.
+    for path in ("/docs", "/redoc"):
+        assert "swagger" not in client.get(path).text.lower()
+    assert client.get("/api/openapi.json").status_code == 200
 
 
 def test_foreign_host_header_is_rejected(app: FastAPI) -> None:

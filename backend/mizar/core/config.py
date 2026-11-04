@@ -16,6 +16,11 @@ def _default_data_dir() -> Path:
     return Path.home() / ".local" / "share" / "mizar"
 
 
+def _default_frontend_dir() -> Path:
+    # The built web UI next to the backend in a source checkout (frontend/dist).
+    return Path(__file__).resolve().parents[3] / "frontend" / "dist"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MIZAR_", frozen=True)
 
@@ -43,6 +48,8 @@ class Settings(BaseSettings):
     min_free_disk_bytes: int = Field(default=1 * GIB, ge=0)
 
     log_level: str = "INFO"
+    # Built web UI (npm run build). Missing: the API still runs and "/" explains how to build it.
+    frontend_dir: Path = Field(default_factory=_default_frontend_dir)
 
     @field_validator("host")
     @classmethod

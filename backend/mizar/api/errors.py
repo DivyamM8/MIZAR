@@ -6,9 +6,10 @@ import logging
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from mizar.api.frontend import ui_page
 from mizar.core.errors import ErrorCode, MizarError, error_envelope
 
 log = logging.getLogger(__name__)
@@ -51,8 +52,12 @@ async def _validation_error(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
-async def _http_error(request: Request, exc: Exception) -> JSONResponse:
+async def _http_error(request: Request, exc: Exception) -> Response:
     assert isinstance(exc, StarletteHTTPException)
+    if exc.status_code == 404:
+        page = ui_page(request)
+        if page is not None:
+            return page
     code = {404: ErrorCode.NOT_FOUND, 405: ErrorCode.METHOD_NOT_ALLOWED}.get(
         exc.status_code, ErrorCode.HTTP_ERROR
     )
