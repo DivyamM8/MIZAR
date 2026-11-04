@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | **Approved for implementation** |
-| Document version | 0.5.0 |
+| Document version | 0.6.0 |
 | Licence | Apache-2.0 |
 | Date | 2026-10-29 |
 | Event schema version | 1.0.0 (proposed) |
@@ -98,6 +98,10 @@ investigators. **Secondary:** CTF participants and learners.
 | D29 | First-seen rules | Only values first seen *after a baseline period* of the case's data are flagged; if the data is shorter than the baseline the run notes it | Without a baseline, everything is "first seen" once |
 | D30 | Evidence links | `finding_events` has no foreign key to events. Links follow original records: re-parsing the same bytes keeps the IDs, and links to records that no longer exist are shown as not present | Old runs stay reviewable after re-parsing |
 | D31 | Regex engine | RE2 (linear time, no backreferences) for all rule regexes | A hostile log line cannot stall a rule |
+| D32 | Event links | Only source-documented links are stored (Sysmon `ProcessGuid`: parent→child process, process→its activity). "Related by IP/user/host within ±window" is computed on request and labeled as shared attributes | Materializing same-actor links is quadratic (every failure from one IP linked to every other) and would suggest causation |
+| D33 | Sessions | Duplicate-free events sharing (`hostname`, `session_id`) form a session group, split when consecutive events are more than 8 h apart; Windows shared logon IDs (0x3e7, 0x3e4, 0x3e5, 0x0) and one-event sessions are excluded | sshd PIDs and auditd session numbers are reused over time; SYSTEM would otherwise be one giant session |
+| D34 | Case index | Entities, sessions and process links are rebuilt for the whole case by one background job, queued after parsing (at most one waiting per case) | Always consistent with the current events; cost ≈ 12–15 s per 1M events |
+| D35 | Short write transactions | Heavy rebuilds compute in read transactions and swap results in one short write; SQLite waits up to 30 s for the write lock | Measured: 148 API writes during a 1M-event index rebuild, 0 errors (worst wait 5.6 s); before, writers failed after 5 s |
 
 ---
 
@@ -597,41 +601,54 @@ way.
 
 ### 10.1 Entities
 
-Hosts, users, IPs, and sessions are extracted from events into an entity index
-(`entity_type`, `value`, `first_seen`, `last_seen`, `event_count`,
-`source_files`). The Entities page lets the analyst pivot from an entity to all
-of its events and findings.
+Hosts, users and IP addresses are extracted from events into an entity index
+(`entity_type`, `value`, `event_count`, `unplaced_count`, `first_seen_utc`,
+`last_seen_utc`, `source_file_ids`; for IPs also `as_source` /
+`as_destination`). A record collected twice counts once. The API adds the
+findings of a run (latest successful by default) that name each entity, by
+severity, and an entity detail lists those findings and the entity's
+sessions. Values are kept as written; Windows account names that differ only
+in case are separate entities.
 
-### 10.2 Event links
+### 10.2 Sessions and links
 
-Links are typed, directed edges stored in `event_links` with `link_type`,
-`basis` (the shared key and its value), and `run_id`.
+**Sessions** (D33) are event groups: events sharing `hostname` and
+`session_id` (Windows logon ID, `sshd[PID]`, auditd `ses`, Zeek `uid`). The
+summary lists start and end, accounts and addresses seen, event types, and
+whether a closing event (logoff, session closed) was recorded. Session
+membership shows in the event detail.
+
+**Documented links** (D32) are stored only where the source defines them:
 
 | Link type | Basis | Example |
 |---|---|---|
-| `same_session` | `session_id` + `hostname` | Windows 4624 → 4672 → 4688 → 4634 via `TargetLogonId`; sshd PID; Zeek `uid`; auditd `ses` |
-| `same_actor_window` | `source_ip` or `username` within a configurable window (default 30 min) | Web scan → SSH success from the same IP |
-| `cause_effect_documented` | Documented relationship between event codes | Sysmon 1 `ParentProcessGuid` → `ProcessGuid` |
-| `duplicate_of` | §8 | |
+| `parent_process_of` | Sysmon `ParentProcessGuid` → `ProcessGuid` | cmd.exe started by a web server process |
+| `process_performed` | Sysmon `ProcessGuid` on network, file, registry and DNS events | The process that made a connection |
 
-The UI labels links as **"related by `<basis>`"**. A link means the events
-share an attribute within a time window. It does **not** establish causation.
-Only `cause_effect_documented` links, which come from fields the source itself
-defines, are presented as parent/child relationships.
+**Related events** are computed on request: events sharing `source_ip`,
+`destination_ip`, `username` or `hostname` with the selected event within
+±window (default 30 min). The response states the basis and that a shared
+attribute and time does not show causation.
+
+Duplicate groups (§8) complete the set of relationships.
 
 ### 10.3 Timeline
 
 - One unified UTC timeline across all sources, filterable by host, user, IP,
-  source file, category, severity of linked findings, and time range.
+  source file, category, event type, message text, time range, a finding, or
+  a minimum severity of linked findings.
 - Each row shows UTC time, the original timestamp text, the timezone
-  assumption badge, source file, host, and message.
-- Finding markers sit on the timeline. Clicking one highlights its related
-  events.
-- The "Unplaced" lane holds events without a reliable UTC time (§4.7).
-- Session view: a reconstructed session (logon → activity → logoff) as a
-  collapsible chain.
-- Large data: server-side pagination and windowed aggregation (a histogram by
-  time bucket), with a virtualized list in the browser.
+  assumption, source file, host, user, addresses, event type and outcome, a
+  message preview, and **finding markers** (rule, severity, role) from a run.
+- Paging uses a keyset cursor on (`timestamp_utc`, `source_file_id`,
+  `record_index`), covered by one index, in both directions: every page costs
+  the same (measured ≈ 5 ms deep into 1M events).
+- The **unplaced lane** holds events without a reliable UTC time (§4.7), in file
+  order, with its own cursor; it is never interleaved with placed events.
+- A histogram endpoint returns counts per bucket (bucket sizes rounded to
+  readable steps from 1 s to 30 days) and how many of those events are
+  finding evidence, plus the unplaced count.
+- Session view: a session's events in order (logon → activity → logoff).
 
 ---
 
@@ -933,6 +950,8 @@ color alone). Dark and light themes. All assets are bundled locally (no CDN).
   list < 500 ms, timeline page < 1 s (keyset pagination, Phase 4).
   Measured in Phase 3: a full analysis run (32 rules) over 1M events takes
   **~48 s** (≈ 8 min per 10M events); the finding list returns in < 10 ms.
+  Measured in Phase 4 (1M events): case index build ≈ 12–15 s, timeline page
+  ≈ 5–30 ms at any depth, histogram ≈ 0.6 s, entity list ≈ 35 ms.
 - Tooling: pytest, ruff, mypy (strict on core packages), ESLint + TypeScript
   strict, Vitest, Playwright for a few end-to-end flows.
 

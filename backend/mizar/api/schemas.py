@@ -239,6 +239,8 @@ class EventGroupOut(BaseModel):
 class EventDetail(EventOut):
     raw_record: RawRecordOut | None
     groups: list[EventGroupOut]
+    # Documented relationships only (e.g. Sysmon ProcessGuid parent and activity).
+    links: EventLinks
 
 
 class EventPage(BaseModel):
@@ -363,3 +365,161 @@ class RuleOut(BaseModel):
     base_confidence: str
     evidence_strength: str
     params: dict[str, dict[str, Any]]
+
+
+class FindingMarker(BaseModel):
+    finding_id: str
+    rule_id: str
+    severity: str
+    role: str
+
+
+class TimelineEvent(BaseModel):
+    event_id: str
+    timestamp_utc: datetime | None
+    timestamp_original: str | None
+    timezone_assumption: str
+    source_file_id: str
+    source_filename: str | None
+    record_index: int
+    source_type: str
+    hostname: str | None
+    username: str | None
+    source_ip: str | None
+    destination_ip: str | None
+    destination_port: int | None
+    event_category: str | None
+    event_type: str | None
+    event_outcome: str | None
+    event_code: str | None
+    session_id: str | None
+    parsing_status: str
+    message: str | None
+    message_truncated: bool
+    findings: list[FindingMarker]
+
+
+class TimelinePage(BaseModel):
+    lane: str
+    run_id: str | None
+    items: list[TimelineEvent]
+    next_cursor: str | None
+    prev_cursor: str | None
+
+
+class HistogramBucket(BaseModel):
+    start_utc: datetime
+    count: int
+    finding_events: int
+
+
+class Histogram(BaseModel):
+    start_utc: datetime | None
+    end_utc: datetime | None
+    bucket_seconds: int | None
+    buckets: list[HistogramBucket]
+    placed: int
+    unplaced: int
+
+
+class IndexState(BaseModel):
+    status: str
+    job_id: str | None
+    built_at: datetime | None
+    error_code: str | None = None
+
+
+class EntityOut(BaseModel):
+    entity_type: str
+    value: str
+    event_count: int
+    unplaced_count: int
+    first_seen_utc: datetime | None
+    last_seen_utc: datetime | None
+    as_source: int | None
+    as_destination: int | None
+    source_file_ids: list[str]
+    finding_count: int
+    findings_by_severity: dict[str, int]
+    highest_severity: str | None
+
+
+class EntityPage(BaseModel):
+    items: list[EntityOut]
+    total: int
+    run_id: str | None
+    index: IndexState
+
+
+class EntityFinding(BaseModel):
+    finding_id: str
+    rule_id: str
+    title: str
+    severity: str
+    confidence: str
+
+
+class SessionOut(BaseModel):
+    session_group_id: str
+    case_id: str
+    hostname: str | None
+    session_id: str | None
+    event_count: int
+    first_utc: datetime | None
+    last_utc: datetime | None
+    usernames: list[str]
+    source_ips: list[str]
+    event_types: list[tuple[str, int]]
+    first_event_type: str | None
+    closed: bool
+    events_without_utc: int
+    source_file_ids: list[str]
+
+
+class SessionPage(BaseModel):
+    items: list[SessionOut]
+    total: int
+
+
+class SessionEvent(BaseModel):
+    event_id: str
+    timestamp_utc: datetime | None
+    timestamp_original: str | None
+    timezone_assumption: str
+    source_file_id: str
+    record_index: int
+    hostname: str | None
+    username: str | None
+    source_ip: str | None
+    event_type: str | None
+    event_outcome: str | None
+    event_code: str | None
+    message: str | None
+
+
+class SessionDetail(SessionOut):
+    events: list[SessionEvent]
+    offset: int
+
+
+class EntityDetail(EntityOut):
+    run_id: str | None
+    findings: list[EntityFinding]
+    sessions: list[SessionOut]
+
+
+class EventLink(BaseModel):
+    link_type: str
+    basis: dict[str, Any]
+    event_id: str
+
+
+class EventLinks(BaseModel):
+    outgoing: list[EventLink]
+    incoming: list[EventLink]
+
+
+class RelatedEvents(BaseModel):
+    basis: dict[str, Any]
+    note: str
+    items: list[SessionEvent]

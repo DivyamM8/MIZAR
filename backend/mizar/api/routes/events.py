@@ -8,8 +8,9 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from mizar.api.deps import EngineDep, StoreDep
-from mizar.api.schemas import EventDetail, EventOut, EventPage
+from mizar.api.schemas import EventDetail, EventLinks, EventOut, EventPage
 from mizar.core.errors import ErrorCode, MizarError
+from mizar.correlation.service import event_links_for
 from mizar.events.service import MAX_PAGE, EventFilter, get_event, list_events
 
 router = APIRouter(tags=["events"])
@@ -65,4 +66,7 @@ def search_events(
 
 @router.get("/api/events/{event_id}")
 def event_detail(event_id: str, engine: EngineDep, store: StoreDep) -> EventDetail:
-    return EventDetail(**get_event(engine, store, event_id))
+    return EventDetail(
+        **get_event(engine, store, event_id),
+        links=EventLinks.model_validate(event_links_for(engine, event_id)),
+    )

@@ -3,11 +3,11 @@
 Local log analysis and investigation tool for SOC analysts, incident
 responders, and digital forensic investigators.
 
-> Status: **Phase 3**. Evidence intake, parsing into the normalized event
-> schema, 32 detection rules, findings and reproducible analysis runs are
-> implemented (API only). Correlation timeline, UI and reporting come next.
-> See [docs/DESIGN.md](docs/DESIGN.md), [docs/event-schema.md](docs/event-schema.md)
-> and [docs/rules.md](docs/rules.md).
+> Status: **Phase 4**. Evidence intake, parsing into the normalized event
+> schema, 32 detection rules with reproducible analysis runs, and a correlated
+> timeline with entities and sessions are implemented (API only). The web UI
+> and reporting come next. See [docs/DESIGN.md](docs/DESIGN.md),
+> [docs/event-schema.md](docs/event-schema.md) and [docs/rules.md](docs/rules.md).
 
 ## Requirements
 

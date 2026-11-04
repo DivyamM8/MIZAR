@@ -20,6 +20,7 @@ from sqlalchemy import Engine, delete, insert, select, update
 from mizar.core.errors import ErrorCode, MizarError
 from mizar.core.ids import new_parse_result_id
 from mizar.core.timeutil import to_utc_storage, utc_now
+from mizar.correlation.index import queue_index
 from mizar.db.tables import events, parse_results, raw_records
 from mizar.events.dedup import needs_rebuild, rebuild_duplicate_groups
 from mizar.evidence import service as evidence
@@ -290,6 +291,8 @@ def parse_file_job(ctx: JobContext) -> dict[str, Any]:
     if needs_rebuild(deps.engine, row["case_id"], file_id):
         rebuild_duplicate_groups(deps.engine, row["case_id"])
     _refresh_planner_statistics(deps.engine)
+    with deps.engine.begin() as conn:
+        queue_index(conn, row["case_id"])
     return _summary(file_id, parse_result_id, status, stats)
 
 

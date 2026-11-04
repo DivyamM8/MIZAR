@@ -228,7 +228,8 @@ events = Table(
     UniqueConstraint("source_file_id", "record_index"),
     # Single-column filter indexes stay small; planner statistics (PRAGMA optimize after
     # each parse) let SQLite prefer them over the case_id index for selective filters.
-    Index(None, "case_id", "timestamp_utc"),
+    # Covers the timeline order exactly, so keyset pages never sort (DESIGN.md §10.3).
+    Index(None, "case_id", "timestamp_utc", "source_file_id", "record_index"),
     Index(None, "source_ip"),
     Index(None, "destination_ip"),
     Index(None, "username"),
@@ -270,6 +271,10 @@ event_groups = Table(
     Column("group_type", String(16), nullable=False),
     Column("group_key", Text, nullable=False),
     Column("member_count", Integer, nullable=False),
+    # Session groups: start/end, accounts, addresses, event types (DESIGN.md §10.2).
+    Column("summary", JSON),
+    Column("first_utc", UTCDateTime()),
+    Column("last_utc", UTCDateTime()),
     Column("created_at", UTCDateTime(), nullable=False),
     CheckConstraint("group_type IN ('duplicate', 'session', 'chain')", name="group_type"),
     Index(None, "case_id", "group_type"),
@@ -392,4 +397,45 @@ finding_events = Table(
     Column("role", String(30), nullable=False),
     Column("position", Integer, nullable=False),
     Index(None, "event_id"),
+)
+
+ENTITY_TYPES = ("host", "user", "ip")
+
+# Rebuilt by the case index job after parsing (DESIGN.md §10.1).
+entities = Table(
+    "entities",
+    metadata,
+    Column(
+        "case_id", String(40), ForeignKey("cases.case_id", ondelete="CASCADE"), primary_key=True
+    ),
+    Column("entity_type", String(8), primary_key=True),
+    Column("value", Text, primary_key=True),
+    Column("event_count", Integer, nullable=False),
+    # Records without a reliable UTC time are counted but have no place in time.
+    Column("unplaced_count", Integer, nullable=False),
+    Column("first_seen_utc", UTCDateTime()),
+    Column("last_seen_utc", UTCDateTime()),
+    # For IPs: how often the address appears as source and as destination.
+    Column("as_source", Integer),
+    Column("as_destination", Integer),
+    Column("source_file_ids", JSON, nullable=False),
+    CheckConstraint("entity_type IN ('host', 'user', 'ip')", name="entity_type"),
+    Index(None, "case_id", "entity_type", "event_count"),
+)
+
+# Only relationships the source itself documents (Sysmon ProcessGuid). Links by shared
+# IP/user/time are computed on request and never stored or presented as causal.
+event_links = Table(
+    "event_links",
+    metadata,
+    Column("link_id", Integer, primary_key=True, autoincrement=True),
+    Column("case_id", String(40), ForeignKey("cases.case_id", ondelete="CASCADE"), nullable=False),
+    Column("from_event_id", String(36), nullable=False),
+    Column("to_event_id", String(36), nullable=False),
+    Column("link_type", String(30), nullable=False),
+    Column("basis", JSON, nullable=False),
+    CheckConstraint("link_type IN ('parent_process_of', 'process_performed')", name="link_type"),
+    Index(None, "case_id"),
+    Index(None, "from_event_id"),
+    Index(None, "to_event_id"),
 )

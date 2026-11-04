@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mizar.correlation.index import INDEX_JOB, rebuild_case_index
 from mizar.detection.runs import ANALYSIS_JOB, analysis_run_job
 from mizar.evidence import service as evidence
 from mizar.ingest.parse import PARSE_JOB, parse_file_job
@@ -13,6 +14,11 @@ from mizar.jobs.worker import JobContext, register
 register(evidence.INGEST_JOB)(ingest_file_job)
 register(PARSE_JOB)(parse_file_job)
 register(ANALYSIS_JOB)(analysis_run_job)
+
+
+@register(INDEX_JOB)
+def index_case_job(ctx: JobContext) -> dict[str, Any]:
+    return rebuild_case_index(ctx.deps.engine, ctx.payload["case_id"])
 
 
 @register(evidence.VERIFY_JOB)

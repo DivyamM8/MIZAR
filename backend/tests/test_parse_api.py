@@ -78,7 +78,7 @@ def test_upload_parses_into_events(api: TestClient, run_jobs: RunJobs) -> None:
     assert detail["ingestion_time"] == parse["started_at"]
     assert detail["parser_version"] == "1.0.0" and detail["schema_version"] == "1.0.0"
     assert detail["original_record_reference"]["line"] == 3
-    assert detail["groups"] == []
+    assert [g["group_type"] for g in detail["groups"]] == ["session"]  # sshd[10]
 
 
 def test_naive_time_filter_is_rejected(api: TestClient) -> None:
@@ -135,13 +135,16 @@ def test_same_log_collected_twice_forms_duplicate_groups(
     _upload(api, case_id, AUTH[: AUTH.index(b"Oct 29 12:01")], "auth.log.copy")
     run_jobs()
     with engine.connect() as conn:
-        groups = conn.execute(select(event_groups.c.group_key, event_groups.c.member_count)).all()
+        groups = conn.execute(
+            select(event_groups.c.group_key, event_groups.c.member_count).where(
+                event_groups.c.group_type == "duplicate"
+            )
+        ).all()
     # Lines 1 and 2 are identical within each file: still two separate groups, never merged.
     assert sorted(count for _, count in groups) == [2, 2, 2]
     first = _events(api, case_id, event_type="logon_failed")["items"][0]
     detail = api.get(f"/api/events/{first['event_id']}").json()
-    (group,) = detail["groups"]
-    assert group["group_type"] == "duplicate"
+    (group,) = [g for g in detail["groups"] if g["group_type"] == "duplicate"]
     assert len({m["source_file_id"] for m in group["members"]}) == 2
     assert _events(api, case_id)["total"] == 7  # nothing was removed
 

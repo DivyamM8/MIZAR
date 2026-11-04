@@ -104,7 +104,7 @@ def test_upload_hashes_and_detects(api: TestClient, run_jobs: RunJobs) -> None:
     assert source["year_hint"] == 2026
     assert source["uploaded_by"] == "R. Analyst"
 
-    assert run_jobs() == 2  # ingest, then parse
+    assert run_jobs() == 3  # ingest, parse, then the case index
     job = api.get(f"/api/jobs/{uploaded['job_id']}").json()
     assert job["status"] == "succeeded"
     (row,) = _files(api, case["case_id"])
@@ -209,7 +209,7 @@ def test_nested_archive_is_expanded_into_a_tree(api: TestClient, run_jobs: RunJo
         }
     )
     _upload(api, case["case_id"], bundle, "collection.tar.gz", timezone_hint="Europe/Berlin")
-    assert run_jobs() == 3  # ingest, then one parse per log file
+    assert run_jobs() == 4  # ingest, one parse per log file, one case index
     rows = {
         r["archive_member_path"] or r["original_filename"]: r for r in _files(api, case["case_id"])
     }

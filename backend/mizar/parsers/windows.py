@@ -332,6 +332,7 @@ def map_event(win: WinEvent) -> tuple[dict[str, Any], list[str]]:
             "event_outcome": "success",
             "username": subject,
             "user_domain": none_if_dash(user_data.get("SubjectDomainName")),
+            "session_id": none_if_dash(user_data.get("SubjectLogonId")),
             "extra": {"cleared_channel": user_data.get("Channel")} if event_id == 104 else {},
         }
     elif win.provider == SCM and event_id == 7045:

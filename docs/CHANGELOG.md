@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Phase 4 — correlation and timeline (2026-11-04)
+- Case index job after parsing: entities (hosts, users, IPs with source and
+  destination counts), sessions from shared logon/session IDs, and documented
+  Sysmon process links; duplicates counted once.
+- Timeline API with keyset paging in both directions, a separate lane for
+  events without reliable UTC time, shared filters, finding markers, and
+  filters by finding or minimum severity; histogram with readable bucket sizes.
+- Entity list and detail with the findings that name each entity; session list
+  and detail; on-demand related events labeled as shared attributes, not
+  causation; documented links in event detail.
+- Long rebuilds no longer hold the database write lock; writers wait up to
+  30 s instead of failing.
+- Windows log-cleared events (1102/104) now carry the logon ID, so they join
+  the session that cleared the log.
+
 ### Phase 3 — detection, findings, analysis runs (2026-11-04)
 - Rule engine with five rule types (match, threshold, sequence, first-seen,
   correlation), a filter language with list-aware operators and RE2 regexes,

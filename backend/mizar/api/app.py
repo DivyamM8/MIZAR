@@ -9,7 +9,7 @@ from sqlalchemy import Engine, text
 
 from mizar.api.errors import install_error_handlers
 from mizar.api.middleware import LocalGuardMiddleware
-from mizar.api.routes import analysis, cases, events, files, jobs
+from mizar.api.routes import analysis, cases, correlation, events, files, jobs
 from mizar.core.config import Settings
 from mizar.db.engine import head_revision
 from mizar.evidence.store import EvidenceStore
@@ -44,6 +44,7 @@ def create_app(settings: Settings, engine: Engine, api_token: str) -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(events.router)
     app.include_router(analysis.router)
+    app.include_router(correlation.router)
 
     @app.get("/api/health")
     def health(request: Request) -> dict[str, Any]:

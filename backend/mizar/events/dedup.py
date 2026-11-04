@@ -67,12 +67,8 @@ def needs_rebuild(engine: Engine, case_id: str, source_file_id: str) -> bool:
 
 def rebuild_duplicate_groups(engine: Engine, case_id: str) -> int:
     """Recompute all duplicate groups of a case. Returns the number of groups."""
-    with engine.begin() as conn:
-        conn.execute(
-            delete(event_groups).where(
-                event_groups.c.case_id == case_id, event_groups.c.group_type == "duplicate"
-            )
-        )
+    # Compute in a read transaction, then swap the groups in one short write.
+    with engine.connect() as conn:
         members: dict[tuple[str, int], list[tuple[str, str]]] = defaultdict(list)
         for record_hash, occurrence, event_id, source_file_id in conn.execute(
             _DUPLICATE_CANDIDATES, {"case_id": case_id}
@@ -99,6 +95,12 @@ def rebuild_duplicate_groups(engine: Engine, case_id: str) -> int:
                 }
             )
             links.extend({"group_id": group_id, "event_id": event_id} for event_id, _ in found)
+    with engine.begin() as conn:
+        conn.execute(
+            delete(event_groups).where(
+                event_groups.c.case_id == case_id, event_groups.c.group_type == "duplicate"
+            )
+        )
         if groups:
             conn.execute(insert(event_groups), groups)
             conn.execute(insert(event_group_members), links)

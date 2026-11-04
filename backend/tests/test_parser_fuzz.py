@@ -76,7 +76,9 @@ def test_parsers_never_crash(data: bytes, format_id: str) -> None:
 def test_line_parsers_keep_every_line(format_id: str, data: bytes) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         events, _, raws = run(format_id, data, Path(tmp), encoding="utf-8")
-    lines = [line.rstrip(b"\r") for line in data.split(b"\n") if line.rstrip(b"\r").strip()]
+    # The terminator is \n or \r\n: exactly one trailing CR belongs to it, not to the record.
+    lines = [line[:-1] if line.endswith(b"\r") else line for line in data.split(b"\n")]
+    lines = [line for line in lines if line.strip()]
     assert len(events) == len(lines)
     assert raws == [None] * len(events)  # line records are read back from the evidence file
     for event, line in zip(events, lines, strict=True):

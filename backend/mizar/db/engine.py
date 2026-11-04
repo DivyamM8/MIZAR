@@ -20,7 +20,8 @@ def _set_sqlite_pragmas(dbapi_connection: Any, _record: Any) -> None:
     try:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA busy_timeout=5000")
+        # Writers wait up to 30 s for the single SQLite write lock instead of failing.
+        cursor.execute("PRAGMA busy_timeout=30000")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA cache_size=-65536")  # 64 MiB page cache per connection
         cursor.execute("PRAGMA temp_store=MEMORY")
