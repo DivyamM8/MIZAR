@@ -180,10 +180,12 @@ parse_results = Table(
 
 # schema_version, parser_version and ingestion_time are per parse: the API joins them
 # from parse_results (ingestion_time = parse_results.started_at).
+# The event ID has a unique index rather than being the primary key, so a large file can
+# be loaded without it and the index rebuilt once (DESIGN.md D48, mizar/db/bulk.py).
 events = Table(
     "events",
     metadata,
-    Column("event_id", String(36), primary_key=True),
+    Column("event_id", String(36), nullable=False),
     Column("case_id", String(40), ForeignKey("cases.case_id", ondelete="CASCADE"), nullable=False),
     Column(
         "source_file_id",
@@ -238,6 +240,7 @@ events = Table(
     Index(None, "event_type"),
     Index(None, "event_code"),
     Index(None, "record_hash"),
+    Index(None, "event_id", unique=True),
 )
 
 # Copies of original record bytes, only for records whose locator cannot be read back

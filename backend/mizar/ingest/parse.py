@@ -21,6 +21,8 @@ from mizar.core.errors import ErrorCode, MizarError
 from mizar.core.ids import new_parse_result_id
 from mizar.core.timeutil import to_utc_storage, utc_now
 from mizar.correlation.index import queue_index
+from mizar.db.bulk import drop_deferred_indexes, restore_deferred_indexes
+from mizar.db.engine import PAGE_CACHE_KIB
 from mizar.db.tables import events, parse_results, raw_records
 from mizar.events.dedup import needs_rebuild, rebuild_duplicate_groups
 from mizar.evidence import service as evidence
@@ -33,7 +35,18 @@ from mizar.versions import EVENT_SCHEMA_VERSION
 log = logging.getLogger(__name__)
 
 PARSE_JOB = "parse_file"
-BATCH_SIZE = 5000
+# Events per write transaction, and the page cache of the connection writing them.
+# Every commit rewrites each index page it touched (event IDs and record hashes are
+# random keys), so larger batches write far less. Measured on 2M web log events
+# (DESIGN.md §18): 5,000 per batch with a 64 MiB cache wrote 49.8 GB at 6,400 events/s;
+# 50,000 with 256 MiB wrote 19.6 GB at 13,700 events/s. A batch commits in seconds,
+# well inside the 30 s other writers wait for the lock.
+BATCH_SIZE = 50_000
+BULK_CACHE_KIB = 256 * 1024
+# Files at least this large load without the random-key event indexes, which are rebuilt
+# afterwards (DESIGN.md D48). About 400k events; below this, rebuilding over a large
+# case costs more than inserting into the indexes.
+DEFER_INDEXES_MIN_BYTES = 64 * 1024 * 1024
 _MAX_PROBLEMS_KEPT = 200
 
 
@@ -177,20 +190,62 @@ def _storage_row(rows: Any) -> tuple[Any, ...]:
     return tuple(values)
 
 
-def _flush(engine: Engine, batch: list[Any]) -> None:
-    if not batch:
-        return
-    event_rows = [_storage_row(rows) for rows in batch]
-    raw_rows = [tuple(rows.raw[column] for column in _RAW_COLUMNS) for rows in batch if rows.raw]
-    with engine.begin() as conn:
-        cursor = conn.connection.driver_connection.cursor()  # type: ignore[union-attr]
+class _BulkWriter:
+    """Writes event batches over one connection that keeps a larger page cache.
+
+    With defer_indexes, the random-key event indexes are dropped first and rebuilt by
+    restore_indexes(). Foreign keys are not checked on this connection meanwhile: the
+    event ID index they rely on is gone, and the rows written are the parser's own.
+    """
+
+    def __init__(self, engine: Engine, defer_indexes: bool = False) -> None:
+        self._conn = engine.connect()
+        self._driver = self._conn.connection.driver_connection
+        self._driver.execute(f"PRAGMA cache_size=-{BULK_CACHE_KIB}")  # type: ignore[union-attr]
+        self._deferred = defer_indexes
+        self._leave_to_restart = False
+        if defer_indexes:
+            self._driver.execute("PRAGMA foreign_keys=OFF")  # type: ignore[union-attr]
+            with self._conn.begin():
+                drop_deferred_indexes(self._conn)
+
+    def flush(self, batch: list[Any]) -> None:
+        if not batch:
+            return
+        event_rows = [_storage_row(rows) for rows in batch]
+        raw_rows = [
+            tuple(rows.raw[column] for column in _RAW_COLUMNS) for rows in batch if rows.raw
+        ]
+        with self._conn.begin():
+            cursor = self._driver.cursor()  # type: ignore[union-attr]
+            try:
+                cursor.executemany(_INSERT_EVENTS, event_rows)
+                if raw_rows:
+                    cursor.executemany(_INSERT_RAW, raw_rows)
+            finally:
+                cursor.close()
+        batch.clear()
+
+    def restore_indexes(self) -> None:
+        if not self._deferred:
+            return
+        if not self._leave_to_restart:
+            with self._conn.begin():
+                restore_deferred_indexes(self._conn)
+        self._driver.execute("PRAGMA foreign_keys=ON")  # type: ignore[union-attr]
+        self._deferred = False
+
+    def leave_indexes_to_restart(self) -> None:
+        """Shutting down: the next worker restores the indexes when it starts."""
+        self._leave_to_restart = True
+
+    def close(self) -> None:
+        # The connection goes back to the pool: indexes, checks and cache as normal.
         try:
-            cursor.executemany(_INSERT_EVENTS, event_rows)
-            if raw_rows:
-                cursor.executemany(_INSERT_RAW, raw_rows)
+            self.restore_indexes()
+            self._driver.execute(f"PRAGMA cache_size=-{PAGE_CACHE_KIB}")  # type: ignore[union-attr]
         finally:
-            cursor.close()
-    batch.clear()
+            self._conn.close()
 
 
 def _finish(engine: Engine, parse_result_id: str, status: str, stats: _Stats, **error: Any) -> None:
@@ -250,6 +305,10 @@ def parse_file_job(ctx: JobContext) -> dict[str, Any]:
     batch: list[Any] = []
     size = max(row["size_bytes"], 1)
     stream = deps.store.open(row["blob_sha256"])
+    defer = row["size_bytes"] >= DEFER_INDEXES_MIN_BYTES
+    if defer:
+        ctx.progress(0.0, "Loading without search indexes; they are rebuilt at the end")
+    writer = _BulkWriter(deps.engine, defer_indexes=defer)
     try:
         for item in parser.records(stream):
             if isinstance(item, FileProblem):
@@ -259,12 +318,15 @@ def parse_file_job(ctx: JobContext) -> dict[str, Any]:
             stats.add_event(rows.event)
             batch.append(rows)
             if len(batch) >= BATCH_SIZE:
-                _flush(deps.engine, batch)
+                writer.flush(batch)
                 position = stream.tell() if not stream.closed else 0
-                ctx.progress(min(position / size, 0.99), f"{stats.total} records")
-        _flush(deps.engine, batch)
+                ctx.progress(min(position / size, 0.95), f"{stats.total} records")
+        writer.flush(batch)
+        if defer:
+            ctx.progress(0.96, f"{stats.total} records; rebuilding search indexes")
+            writer.restore_indexes()
     except FileParseError as exc:
-        _flush(deps.engine, batch)
+        writer.flush(batch)
         _finish(
             deps.engine,
             parse_result_id,
@@ -277,7 +339,14 @@ def parse_file_job(ctx: JobContext) -> dict[str, Any]:
             "parse failed: %s", exc.code, extra={"job_id": ctx.job_id, "case_id": row["case_id"]}
         )
         return _summary(file_id, parse_result_id, "failed", stats)
-    except (JobCancelled, WorkerStopping):
+    except WorkerStopping:
+        # The job goes back to the queue, and its next attempt removes these events when
+        # it starts (_start). Deleting them, or rebuilding deferred indexes, here could
+        # outlast the shutdown grace period; the next worker restores indexes at start.
+        writer.leave_indexes_to_restart()
+        raise
+    except JobCancelled:
+        writer.restore_indexes()  # deleting events needs the event ID index
         with deps.engine.begin() as conn:
             conn.execute(delete(events).where(events.c.parse_result_id == parse_result_id))
         _finish(
@@ -303,6 +372,7 @@ def parse_file_job(ctx: JobContext) -> dict[str, Any]:
         )
         raise
     finally:
+        writer.close()
         stream.close()
 
     status = "succeeded_with_warnings" if stats.has_warnings else "succeeded"

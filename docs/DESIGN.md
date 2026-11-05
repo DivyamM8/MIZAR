@@ -101,7 +101,7 @@ investigators. **Secondary:** CTF participants and learners.
 | D32 | Event links | Only source-documented links are stored (Sysmon `ProcessGuid`: parent→child process, process→its activity). "Related by IP/user/host within ±window" is computed on request and labeled as shared attributes | Materializing same-actor links is quadratic (every failure from one IP linked to every other) and would suggest causation |
 | D33 | Sessions | Duplicate-free events sharing (`hostname`, `session_id`) form a session group, split when consecutive events are more than 8 h apart; Windows shared logon IDs (0x3e7, 0x3e4, 0x3e5, 0x0) and one-event sessions are excluded | sshd PIDs and auditd session numbers are reused over time; SYSTEM would otherwise be one giant session |
 | D34 | Case index | Entities, sessions and process links are rebuilt for the whole case by one background job, queued after parsing (at most one waiting per case) | Always consistent with the current events; cost ≈ 12–15 s per 1M events |
-| D35 | Short write transactions | Heavy rebuilds compute in read transactions and swap results in one short write; SQLite waits up to 30 s for the write lock | Measured: 148 API writes during a 1M-event index rebuild, 0 errors (worst wait 5.6 s); before, writers failed after 5 s |
+| D35 | Short write transactions | Heavy rebuilds compute in read transactions and swap results in one short write; SQLite waits up to 30 s (60 s since D48) for the write lock | Measured: 148 API writes during a 1M-event index rebuild, 0 errors (worst wait 5.6 s); before, writers failed after 5 s |
 | D36 | UI token delivery | The backend fills a `<meta name="mizar-token">` tag when it serves `index.html`; the app sends it on state-changing requests | No inline script is needed (strict CSP), and other origins cannot read the page |
 | D37 | UI dependencies | Runtime: React, React DOM, React Router only (all MIT). Data fetching, histogram (SVG) and styles are written in the project | Small supply-chain surface for a forensic tool; no CDN, no UI or chart libraries |
 | D38 | Time display | The UI shows every time in UTC with an explicit `Z`, never in the browser's zone, plus the original timestamp text and its time basis | Investigators compare times across sources and reports |
@@ -114,6 +114,7 @@ investigators. **Secondary:** CTF participants and learners.
 | D45 | Packaging | A Python wheel with the built UI inside (`mizar/web`), built by `scripts/build.sh` and installed by `scripts/install.sh` into its own virtual environment with the tested dependency versions (`constraints.txt`); `pipx` also works. No container image | Chosen in review (Q8): no container runtime needed, and the loopback-only bind stays as it is (a container would have to listen on all interfaces inside) |
 | D46 | Job time limit | A watchdog thread per job: past `MIZAR_JOB_TIMEOUT_SECONDS` (default 6 h) the job is recorded as `JOB_TIMEOUT` (parse results and unprocessed uploads too), not retried, and the worker process exits; `mizar serve` starts a fresh worker. `mizar serve` turns SIGTERM into a normal exit so it always stops its worker, and a worker whose server died stops itself | A handler stuck in native code (a parser on hostile input) cannot be interrupted from Python; before, one such file blocked every later job |
 | D47 | Request size | State-changing API requests other than uploads must declare a length of at most 1 MiB (`REQUEST_TOO_LARGE`, `LENGTH_REQUIRED`) | Uploads stream to disk under their own limits; JSON bodies are small |
+| D48 | Bulk loading | Parsing writes 50,000 events per transaction over one connection with a 256 MiB cache. Files of 64 MiB or more load without the five random-key event indexes (event ID, record hash, source/destination IP, session ID), which are rebuilt in one sorted pass afterwards; the bulk connection does not check foreign keys meanwhile. Missing indexes are restored at worker start; case deletion is refused during a load. The event ID is a unique index, not the primary key (migration 0007), so it can be dropped. Writers wait up to 60 s for the lock | Random-key indexes made each new event rewrite several index pages: on a 13.7M-event case, parsing fell to 1,600 events/s and the run wrote 269 GB to disk. Rebuilding one index takes ≈ 30 s at 13.7M events. Chosen in review (Q9) |
 
 ---
 
@@ -992,6 +993,12 @@ survive a reload; the event drawer opens from any table via `?event=<id>`.
   Measured in Phase 6: the 31-finding demo report renders in < 1 s (51 PDF
   pages); JSON and CSV exports with all events stream ≈ 30k events/s (200k
   events in 6.5–7 s, ≈ 5.5 min per 10M) at a flat ≈ 160 MiB.
+  Measured in Phase 7, through the running server (2.03 GB: web access log
+  800 MB / 4.04M events, auth log 900 MB / 8.16M, firewall log 330 MB / 1.48M;
+  13.7M events): uploads and hashing take 5 s. Parsing and indexing took 61 min
+  and wrote 269 GB to disk before D48 (the last file parsed at 1,600 events/s),
+  and take **25 min writing 51 GB** with it (5, 9 and 5 min per file). The
+  database is ≈ 10 GB.
 - Tooling: pytest, ruff, mypy (strict on core packages), TypeScript strict
   (no ESLint, D39), Vitest, Playwright for end-to-end flows; pypdf reads the
   generated PDFs in tests.
@@ -1027,3 +1034,4 @@ Each phase ends runnable and tested, with a check-in before the next one.
 | Q6 | Case deletion | Delete everything (D15) |
 | Q7 | Licence | Apache-2.0 (D16) |
 | Q8 | Packaging (2026-11-04) | Python package, no container (D45) |
+| Q9 | Large-file loading (2026-11-05) | Rebuild indexes after bulk loads (D48) |

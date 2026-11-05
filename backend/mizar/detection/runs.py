@@ -468,9 +468,14 @@ def _persist(
 def _previous_status(
     conn: Any, case_id: str, run_id: str, fingerprints: list[str]
 ) -> dict[str, dict[str, Any]]:
-    """Latest analyst-reviewed state per fingerprint from earlier runs (§11.5)."""
+    """Latest analyst-reviewed state per fingerprint from earlier runs (§11.5).
+
+    Reviewed findings are few, so they are all read and matched here; a run can have
+    more findings than SQLite allows variables in an IN (...) list.
+    """
     if not fingerprints:
         return {}
+    wanted = set(fingerprints)
     rows = conn.execute(
         select(
             findings.c.fingerprint,
@@ -484,12 +489,12 @@ def _previous_status(
         .where(
             findings.c.case_id == case_id,
             findings.c.run_id != run_id,
-            findings.c.fingerprint.in_(fingerprints),
             findings.c.updated_at.is_not(None),
         )
         .order_by(findings.c.updated_at.desc())
     ).mappings()
     latest: dict[str, dict[str, Any]] = {}
     for row in rows:
-        latest.setdefault(row["fingerprint"], dict(row))
+        if row["fingerprint"] in wanted:
+            latest.setdefault(row["fingerprint"], dict(row))
     return latest

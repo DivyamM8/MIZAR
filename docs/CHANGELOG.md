@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Phase 7 — hardening, performance, packaging, user guide (2026-11-05)
+- Background jobs have a time limit (`MIZAR_JOB_TIMEOUT_SECONDS`, default 6 h):
+  a job past it is recorded as `JOB_TIMEOUT` and not retried, and the worker
+  restarts, so input that hangs a parser can no longer block the queue.
+- State-changing API requests other than uploads are limited to 1 MiB.
+- A warning at start-up when the data directory is readable by other users.
+- Stopping `mizar serve` mid-parse no longer deletes the partial events first;
+  the requeued parse does that when it restarts, so shutdown is quick.
+- Dependency audit (`pip-audit`, `npm audit`): no known vulnerabilities.
+- Faster loading of large cases: events are written in batches of 50,000 over
+  one connection with a larger cache, and files of 64 MiB or more load without
+  the random-key event indexes, which are rebuilt afterwards. A 2 GB case
+  (13.7M events) now parses and indexes in 25 min instead of 61, writing 51 GB
+  to disk instead of 269. The event ID becomes a unique index (migration 0007).
+- Fixed: an analysis run with more than about 32,000 findings failed while
+  carrying over analyst statuses ("too many SQL variables").
+- Installable package with the web UI inside: `scripts/install.sh`
+  (`scripts/build.sh` builds the wheel); `mizar --version`.
+- User guide (`docs/USER_GUIDE.md`).
+
 ### Phase 6 — reports and exports (2026-11-04)
 - PDF investigation report: cover with Draft/Final marking and run hashes,
   executive summary generated from the data, scope and evidence with hashes

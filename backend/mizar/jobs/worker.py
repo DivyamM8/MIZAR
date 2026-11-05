@@ -15,6 +15,7 @@ from sqlalchemy import Engine
 
 from mizar.core.config import Settings
 from mizar.core.errors import ErrorCode, MizarError
+from mizar.db.bulk import ensure_event_indexes
 from mizar.evidence.store import EvidenceStore
 from mizar.jobs import queue
 
@@ -189,6 +190,8 @@ def run_one(deps: WorkerDeps, stop: threading.Event) -> bool:
 
 
 def run_worker(deps: WorkerDeps, stop: threading.Event, poll_seconds: float = 0.5) -> None:
+    # Indexes dropped by a bulk load that was interrupted (DESIGN.md D48).
+    ensure_event_indexes(deps.engine)
     # Only one worker runs, so anything still 'running' at startup was orphaned.
     requeued, failed = queue.recover_stale(deps.engine, timedelta(0))
     if requeued or failed:

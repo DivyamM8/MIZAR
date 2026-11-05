@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, update
+from sqlalchemy import Engine, func, select, update
 
 from mizar.core.errors import ErrorCode, MizarError
-from mizar.db.tables import jobs
+from mizar.db.tables import events, jobs
 from mizar.ingest import parse as parse_module
 from mizar.jobs import queue, worker
 from mizar.jobs.worker import HANDLERS, JobContext, WorkerDeps, run_one
@@ -202,9 +202,45 @@ def test_parse_timeout_fails_the_parse_result(
         year_hint=2026,
     )
     run_one(deps, threading.Event())  # ingest, then the parse job is queued
-    monkeypatch.setattr(parse_module, "_flush", lambda engine, batch: _hang_until_exit(exits))
+    monkeypatch.setattr(
+        parse_module._BulkWriter, "flush", lambda self, batch: _hang_until_exit(exits)
+    )
     with pytest.raises(_WorkerExited):
         run_one(deps, threading.Event())
     files = api.get(f"/api/cases/{case_id}/files").json()
     parse = files[0]["parse"]
     assert parse["status"] == "failed" and parse["error_code"] == "JOB_TIMEOUT"
+
+
+def test_parse_interrupted_by_shutdown_resumes_cleanly(
+    api: TestClient, deps: WorkerDeps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case_id = new_case(api)
+    lines = [
+        f"Oct 27 08:00:{i % 60:02d} srv01 sshd[{i}]: Accepted password for a from 10.0.0.1 port {i} ssh2"
+        for i in range(100)
+    ]
+    upload(
+        api,
+        case_id,
+        ("\n".join(lines) + "\n").encode(),
+        "auth.log",
+        timezone_hint="UTC",
+        year_hint=2026,
+    )
+    assert run_one(deps, threading.Event())  # ingest
+    monkeypatch.setattr(parse_module, "BATCH_SIZE", 10)
+    stopping = threading.Event()
+    stopping.set()
+    assert run_one(deps, stopping)  # parse: stops after its first batch
+    with deps.engine.connect() as conn:
+        status = conn.execute(select(jobs.c.status).where(jobs.c.job_type == "parse_file")).scalar()
+        kept = conn.execute(select(func.count()).select_from(events)).scalar()
+    assert status == "queued" and kept == 10  # requeued; partial events left for the retry
+
+    while run_one(deps, threading.Event()):
+        pass
+    files = api.get(f"/api/cases/{case_id}/files").json()
+    assert files[0]["parse"]["status"] == "succeeded"
+    with deps.engine.connect() as conn:
+        assert conn.execute(select(func.count()).select_from(events)).scalar() == 100

@@ -7,6 +7,7 @@ from sqlalchemy import Engine, delete, func, select
 
 from mizar.db.tables import analysis_runs, events, finding_events, findings
 from mizar.detection.engine import Detector
+from mizar.detection.runs import _previous_status
 from mizar.evidence.store import EvidenceStore
 
 from .analysis_helpers import RunJobs, analyze, by_rule, new_case, upload
@@ -279,3 +280,11 @@ def test_rule_catalogue(api: TestClient) -> None:
     auth = next(r for r in rules if r["rule_id"] == "AUTH-001")
     assert auth["params"]["min_failures"]["default"] == 20
     assert auth["attack"] == ["T1110.001"]
+
+
+def test_status_carry_over_handles_very_many_findings(api: TestClient, engine: Engine) -> None:
+    # More fingerprints than SQLite allows variables in one statement (32,766).
+    case_id = new_case(api)
+    fingerprints = [f"{i:064x}" for i in range(40_000)]
+    with engine.connect() as conn:
+        assert _previous_status(conn, case_id, "RUN-NEW", fingerprints) == {}

@@ -12,6 +12,7 @@ from sqlalchemy import Engine, delete, func, insert, select, update
 from mizar.core.errors import ErrorCode, MizarError
 from mizar.core.ids import new_case_id
 from mizar.core.timeutil import utc_now
+from mizar.db.bulk import bulk_load_in_progress
 from mizar.db.tables import cases, jobs, source_files
 from mizar.evidence.service import release_blob_if_unreferenced, require_case
 from mizar.evidence.store import EvidenceStore
@@ -101,6 +102,11 @@ def delete_case(
             raise MizarError(
                 ErrorCode.CASE_NAME_MISMATCH,
                 "The confirmation does not match the case name exactly.",
+            )
+        if bulk_load_in_progress(conn):
+            raise MizarError(
+                ErrorCode.CASE_BUSY,
+                "A large file is being loaded. Delete the case when it has finished.",
             )
         running = conn.execute(
             select(func.count()).where(jobs.c.case_id == case_id, jobs.c.status == "running")
