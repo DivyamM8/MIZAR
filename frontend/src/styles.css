@@ -236,3 +236,4 @@ a.button.primary { background: var(--accent); border-color: var(--accent); color
 .choice.selected { border-color: var(--accent); }
 .form .wide { grid-column: 1 / -1; }
 .form label.inline-check, label.inline-check { flex-direction: row; align-items: center; color: var(--text); font-size: 13px; }
+.notice { border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 6px; padding: 0.6rem 0.8rem; margin: 0.5rem 0; font-size: 13px; }

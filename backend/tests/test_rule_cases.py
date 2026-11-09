@@ -120,6 +120,33 @@ CASES: list[tuple[str, str, Callable[[Any], Files], int]] = [
     ),
     (
         "AUTH-007",
+        "several new sources for one user give one finding",
+        lambda g: [
+            (
+                "auth.log",
+                syslog(
+                    (T0, "sshd[1]: Accepted publickey for alice from 10.0.0.5 port 1 ssh2"),
+                    (T0, "sshd[1]: Accepted publickey for bob from 10.0.0.6 port 1 ssh2"),
+                    (
+                        T0 + timedelta(hours=30),
+                        "sshd[3]: Accepted publickey for alice from 198.51.100.9 port 3 ssh2",
+                    ),
+                    (
+                        T0 + timedelta(hours=31),
+                        "sshd[4]: Accepted publickey for alice from 198.51.100.10 port 4 ssh2",
+                    ),
+                    (
+                        T0 + timedelta(hours=32),
+                        "sshd[5]: Accepted publickey for alice from 198.51.100.9 port 5 ssh2",
+                    ),
+                ),
+                HINTS,
+            )
+        ],
+        1,
+    ),
+    (
+        "AUTH-007",
         "everything inside the baseline",
         lambda g: [
             (

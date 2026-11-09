@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | **Approved for implementation** |
-| Document version | 0.9.0 |
+| Document version | 0.10.0 |
 | Licence | Apache-2.0 |
 | Date | 2026-10-29 |
 | Event schema version | 1.0.0 (proposed) |
@@ -115,6 +115,7 @@ investigators. **Secondary:** CTF participants and learners.
 | D46 | Job time limit | A watchdog thread per job: past `MIZAR_JOB_TIMEOUT_SECONDS` (default 6 h) the job is recorded as `JOB_TIMEOUT` (parse results and unprocessed uploads too), not retried, and the worker process exits; `mizar serve` starts a fresh worker. `mizar serve` turns SIGTERM into a normal exit so it always stops its worker, and a worker whose server died stops itself | A handler stuck in native code (a parser on hostile input) cannot be interrupted from Python; before, one such file blocked every later job |
 | D47 | Request size | State-changing API requests other than uploads must declare a length of at most 1 MiB (`REQUEST_TOO_LARGE`, `LENGTH_REQUIRED`) | Uploads stream to disk under their own limits; JSON bodies are small |
 | D48 | Bulk loading | Parsing writes 50,000 events per transaction over one connection with a 256 MiB cache. Files of 64 MiB or more load without the five random-key event indexes (event ID, record hash, source/destination IP, session ID), which are rebuilt in one sorted pass afterwards; the bulk connection does not check foreign keys meanwhile. Missing indexes are restored at worker start; case deletion is refused during a load. The event ID is a unique index, not the primary key (migration 0007), so it can be dropped. Writers wait up to 60 s for the lock | Random-key indexes made each new event rewrite several index pages: on a 13.7M-event case, parsing fell to 1,600 events/s and the run wrote 269 GB to disk. Rebuilding one index takes ≈ 30 s at 13.7M events. Chosen in review (Q9) |
+| D49 | Analysis memory and finding volume | Candidates keep evidence as (event ID, role) plus first/last time and summary values; evidence events are fetched when each finding is built. Events in memory carry only the fields some rule uses. Threshold rules find bursts in one pass, keeping only each group's window. At most 20,000 groups per rule are tracked, and at most 1,000 findings per rule are kept (highest severity and confidence, then earliest; findings chained by a kept correlation finding are always kept). Both limits are stated in the run notes, the Findings page and the report. Reports stream linked events for JSON/CSV and load only the shown events for the PDF. AUTH-007 2.0.0 reports one finding per user | On the 13.7M-event test case the analysis held full events for every candidate and ran the machine out of memory; AUTH-007 alone produced 235,774 findings on a 2.8M-event slice. Measured on that slice: peak memory 2.0 GB → 0.58 GB. Chosen in review (Q10) |
 
 ---
 
@@ -1035,3 +1036,4 @@ Each phase ends runnable and tested, with a check-in before the next one.
 | Q7 | Licence | Apache-2.0 (D16) |
 | Q8 | Packaging (2026-11-04) | Python package, no container (D45) |
 | Q9 | Large-file loading (2026-11-05) | Rebuild indexes after bulk loads (D48) |
+| Q10 | Noisy rules (2026-11-09) | AUTH-007 per user, and at most 1,000 findings per rule (D49) |

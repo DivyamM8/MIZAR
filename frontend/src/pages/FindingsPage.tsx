@@ -84,6 +84,7 @@ export function FindingsPage() {
         Sorted by severity, then confidence, then evidence strength, then first observed time. Severity, confidence and
         evidence strength are separate judgments and are never combined into one score.
       </p>
+      <CappedNotice capped={runs.data?.find((r) => r.run_id === runId)?.results?.findings_capped} />
       <ErrorBox error={runs.error ?? findings.error} />
       {!findings.data && !findings.error ? <Loading /> : null}
       {findings.data && !findings.data.length ? <Empty>No findings match.</Empty> : null}
@@ -132,5 +133,23 @@ export function FindingsPage() {
         </div>
       ) : null}
     </Section>
+  );
+}
+
+function CappedNotice({ capped }: { capped: Record<string, { matched: number; kept: number }> | undefined }) {
+  const rules = Object.entries(capped ?? {});
+  if (!rules.length) return null;
+  return (
+    <div className="notice" role="note">
+      <strong>Not every match is listed.</strong> Rules that matched more than 1,000 times keep their highest-severity
+      and earliest findings:{" "}
+      {rules.map(([ruleId, c], n) => (
+        <span key={ruleId}>
+          {n ? "; " : ""}
+          {ruleId} kept {c.kept.toLocaleString()} of {c.matched.toLocaleString()}
+        </span>
+      ))}
+      . The run page says which parameters narrow each rule.
+    </div>
   );
 }

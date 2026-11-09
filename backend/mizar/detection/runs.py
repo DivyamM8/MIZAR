@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,7 +25,7 @@ from mizar.db.tables import (
     source_files,
 )
 from mizar.detection.engine import EVIDENCE_CAP, Candidate, Detector, build_finding
-from mizar.detection.rules import SEVERITIES, load_rules
+from mizar.detection.rules import CONFIDENCES, SEVERITIES, Rule, load_rules
 from mizar.evidence.service import require_case, verify_case_files
 from mizar.ingest.formats import GENERIC_FORMATS
 from mizar.jobs import queue
@@ -35,6 +35,9 @@ from mizar.versions import EVENT_SCHEMA_VERSION, MIZAR_VERSION, RULE_FORMAT_VERS
 log = logging.getLogger(__name__)
 
 ANALYSIS_JOB = "analysis_run"
+# A rule matching more often than this is noise no analyst can review; the rest are counted
+# and the run says which parameters to adjust (DESIGN.md D49).
+MAX_FINDINGS_PER_RULE = 1000
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _INPUT_JOB_TYPES = ("ingest_file", "parse_file")
 
@@ -285,9 +288,14 @@ def _execute(ctx: JobContext, run: dict[str, Any]) -> dict[str, Any]:
 
     # 2. Manifest: everything that determines the result.
     rules = load_rules()
+    rule_by_id = {rule.id: rule for rule in rules}
     params = effective_params(run["overrides"])
     inputs = _inputs(engine, case_id)
-    config = {"count_duplicates_once": True, "evidence_cap_per_finding": EVIDENCE_CAP}
+    config = {
+        "count_duplicates_once": True,
+        "evidence_cap_per_finding": EVIDENCE_CAP,
+        "max_findings_per_rule": MAX_FINDINGS_PER_RULE,
+    }
     versions = {
         "mizar_version": MIZAR_VERSION,
         "event_schema_version": EVENT_SCHEMA_VERSION,
@@ -332,12 +340,19 @@ def _execute(ctx: JobContext, run: dict[str, Any]) -> dict[str, Any]:
             select(func.count()).where(events.c.case_id == case_id)
         ).scalar_one()
 
-    # 4. Findings, in a deterministic order (§12.2).
-    built = [
-        build_finding(candidate, params[candidate.rule.id])
-        for rule in rules
-        for candidate in candidates.get(rule.id, [])
-    ]
+        # 4. Findings, in a deterministic order (§12.2). Each fetches its evidence events.
+        built = [
+            build_finding(candidate, params[candidate.rule.id], detector.fetch)
+            for rule in rules
+            for candidate in candidates.get(rule.id, [])
+        ]
+    built, capped = _cap_per_rule(built, rules)
+    for rule_id, counts in capped.items():
+        names = ", ".join(sorted(rule_by_id[rule_id].params)) or "its filter"
+        detector.notes[rule_id]["findings_capped"] = (
+            f"Matched {counts['matched']} times; the {counts['kept']} with the highest severity "
+            f"and confidence, then the earliest, were kept. Adjust {names} to narrow it."
+        )
     built.sort(
         key=lambda f: (
             f["rule_id"],
@@ -357,6 +372,7 @@ def _execute(ctx: JobContext, run: dict[str, Any]) -> dict[str, Any]:
         "findings_by_rule": dict(sorted(Counter(f["rule_id"] for f in built).items())),
         "events_evaluated": events_evaluated,
         "rule_errors": rule_errors,
+        "findings_capped": capped,
         "rule_notes": dict(sorted(detector.notes.items())),
         "coverage_gaps": _coverage_gaps(inputs, engine, case_id),
         "evidence_verification": verification["counts"],
@@ -388,6 +404,45 @@ def _execute(ctx: JobContext, run: dict[str, Any]) -> dict[str, Any]:
         results=results,
     )
     return {"run_id": run_id, "status": status, "findings_total": len(built)}
+
+
+def _cap_per_rule(
+    built: list[dict[str, Any]], rules: tuple[Rule, ...]
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, int]]]:
+    """At most MAX_FINDINGS_PER_RULE findings per rule: the highest severity and confidence,
+    then the earliest. Findings that a kept correlation finding chains are always kept."""
+    by_rule: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for finding in built:
+        by_rule[finding["rule_id"]].append(finding)
+
+    def rank(finding: dict[str, Any]) -> tuple[Any, ...]:
+        first = finding["first_observed_utc"]
+        return (
+            -SEVERITIES.index(finding["severity"]),
+            -CONFIDENCES.index(finding["confidence"]),
+            first is None,
+            first or _EPOCH,
+            finding["fingerprint"],
+        )
+
+    kept: dict[str, list[dict[str, Any]]] = {}
+    capped: dict[str, dict[str, int]] = {}
+    correlation = [r.id for r in rules if r.type == "correlation"]
+    others = [r.id for r in rules if r.type != "correlation"]
+    chained: set[str] = set()
+    for rule_id in correlation + others:  # correlation first: they decide what is chained
+        found = sorted(by_rule.get(rule_id, []), key=rank)
+        if len(found) > MAX_FINDINGS_PER_RULE:
+            keep = found[:MAX_FINDINGS_PER_RULE] + [
+                f for f in found[MAX_FINDINGS_PER_RULE:] if f["fingerprint"] in chained
+            ]
+            capped[rule_id] = {"matched": len(found), "kept": len(keep)}
+            found = keep
+        kept[rule_id] = found
+        if rule_id in correlation:
+            for finding in found:
+                chained.update(finding["related_fingerprints"])
+    return [f for rule_id in kept for f in kept[rule_id]], capped
 
 
 def _persist(

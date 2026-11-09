@@ -189,6 +189,11 @@ override is recorded in that run's manifest.
 **Comparing runs:** select two runs on the Runs tab to see which findings are
 new, gone or changed between them.
 
+**Very frequent matches:** a run keeps at most 1,000 findings per rule: those
+with the highest severity and confidence, then the earliest. If a rule matched
+more often, the Findings tab, the run page and the report say so, with the
+parameters that narrow the rule. Adjust them in a new run.
+
 If you add or re-parse evidence after a run, run the analysis again. Earlier
 runs keep their own results.
 

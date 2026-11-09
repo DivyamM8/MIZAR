@@ -10,10 +10,12 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from pypdf import PdfReader
+from sqlalchemy import Engine
 
 from mizar.core.config import Settings
 from mizar.detection.rules import BANNED_WORDING
 from mizar.reporting import service as export_service
+from mizar.reporting.data import load_report_data
 from mizar.reporting.text import csv_cell, para, visible
 
 from .analysis_helpers import RunJobs, analyze, by_rule, new_case, upload
@@ -356,3 +358,16 @@ def test_pdf_text_escaping() -> None:
     assert visible("Ж Ω א a​b") == "Ж Ω \\u{05d0} a\\u{200b}b"
     assert para("Жx") == '<font name="MizarFallback">Ж</font>x'
     assert para("x" * 10, limit=4) == "xxxx [... 6 more characters]"
+
+
+def test_report_data_holds_only_shown_events(
+    api: TestClient, run_jobs: RunJobs, engine: Engine
+) -> None:
+    _, run_id, found = _analyzed(api, run_jobs)
+    with engine.connect() as conn:
+        data = load_report_data(conn, run_id, {"evidence_limit": 3}, datetime.now(UTC))
+    linked = {eid for f in data.findings for eid, _ in f["evidence"]}
+    assert len(data.events) <= 3 * len(found) < len(linked)
+    assert set(data.linked_ids) == linked  # every linked event, for JSON and CSV
+    stamps = [data.events[e]["timestamp_utc"] for e in data.linked_ids if e in data.events]
+    assert stamps == sorted(stamps)

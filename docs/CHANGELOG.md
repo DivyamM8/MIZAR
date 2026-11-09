@@ -18,6 +18,15 @@
   to disk instead of 269. The event ID becomes a unique index (migration 0007).
 - Fixed: an analysis run with more than about 32,000 findings failed while
   carrying over analyst statuses ("too many SQL variables").
+- Analysis memory no longer grows with the number of events: findings keep
+  their evidence as event IDs and fetch the events when built, threshold rules
+  find bursts in one pass, and reports stream their events. Peak memory on a
+  2.8M-event case fell from 2.0 GB to 0.58 GB.
+- At most 1,000 findings per rule are kept per run (highest severity and
+  confidence, then earliest), and the run, the Findings page and the report
+  say when a rule was capped and which parameters narrow it.
+- AUTH-007 (2.0.0) reports one finding per user, listing that user's new
+  source addresses, instead of one per user and address.
 - Installable package with the web UI inside: `scripts/install.sh`
   (`scripts/build.sh` builds the wheel); `mizar --version`.
 - User guide (`docs/USER_GUIDE.md`).

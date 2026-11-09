@@ -261,6 +261,13 @@ def summary_sentences(data: ReportData) -> list[str]:
             "The rules produced no findings. This means no rule matched the evidence; it "
             "does not show that no activity of interest took place."
         )
+    capped = results.get("findings_capped") or {}
+    if capped:
+        parts = [f"{rule_id} kept {c['kept']} of {c['matched']}" for rule_id, c in capped.items()]
+        sentences.append(
+            "Rules that matched more than 1,000 times keep only their highest-severity and "
+            "earliest findings (" + "; ".join(parts) + "); see section 8."
+        )
     excluded = data.excluded["by_status"] + data.excluded["by_severity"]
     if excluded:
         sentences.append(
@@ -663,8 +670,8 @@ def _network(event: dict[str, Any]) -> str:
 
 def _timeline(data: ReportData) -> list[Flowable]:
     limit = data.options["evidence_limit"]
-    shown = data.timeline(per_finding=limit)
-    every = len(data.timeline())
+    shown = data.timeline()
+    every = len(data.linked_ids)
     story: list[Flowable] = [
         _p("6. Timeline of finding-related events", "h1"),
         _p(

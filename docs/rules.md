@@ -10,7 +10,7 @@
 | AUTH-004 | 1.0.0 | threshold | T1110 | medium | medium | direct | Windows logon failure burst from {source_ip} on {hostname} |
 | AUTH-005 | 1.0.0 | match | T1110 | low | medium | direct | Account lockout for {username} |
 | AUTH-006 | 1.0.0 | threshold | T1110 | low | medium | direct | Logon attempts for non-existent accounts from {source_ip} |
-| AUTH-007 | 1.0.0 | first_seen | T1078 | low | low | inferred | Logon for {username} from a source first seen after the baseline ({source_ip}) |
+| AUTH-007 | 2.0.0 | first_seen | T1078 | low | low | inferred | Logons for {username} from {first_seen_count} source(s) first seen after the baseline |
 | AUTH-008 | 1.0.0 | match | T1021.001 | medium | medium | direct | Remote interactive logon for {username} from public address {source_ip} |
 | AUTH-009 | 1.0.0 | match | T1078, T1021 | low | low | direct | Explicit credentials used by {username} to reach {target_server} |
 | CORR-001 | 1.0.0 | correlation | T1190, T1078 | high | medium | corroborated | Web attack activity from {source_ip} followed by a successful logon from the same address |
@@ -153,9 +153,9 @@ Verification steps:
 - Review which account names were tried (top values in the evidence).
 - Check whether {source_ip} also tried existing accounts (AUTH-001, AUTH-002).
 
-## AUTH-007 — Logon for {username} from a source first seen after the baseline ({source_ip})
+## AUTH-007 — Logons for {username} from {first_seen_count} source(s) first seen after the baseline
 
-A successful logon for {username} from {source_ip} was first recorded after the first {params.baseline} of this case's logon data, with no earlier logon from that address.
+Successful logons for {username} came from {first_seen_count} source address(es) with no logon from them in the first {params.baseline} of this case's logon data. The new addresses are listed under the observed evidence.
 
 Parameters:
 
@@ -168,8 +168,8 @@ Alternative explanations:
 
 Verification steps:
 
-- Ask the account owner whether the logon from {source_ip} was theirs.
-- Check what the session did after the logon.
+- Ask the account owner whether the logons from the new addresses were theirs.
+- Check what the sessions did after those logons.
 
 ## AUTH-008 — Remote interactive logon for {username} from public address {source_ip}
 

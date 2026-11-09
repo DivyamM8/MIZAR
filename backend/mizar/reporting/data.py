@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import cached_property
 from typing import Any
 
 from sqlalchemy import Connection, func, select
@@ -46,8 +47,11 @@ class ReportData:
     # Every finding of the run, before filters: {severity: {status: count}}.
     run_counts: dict[str, dict[str, int]]
     excluded: dict[str, int]
-    # Events referenced by the included findings, by ID.
+    # The events the PDF shows (the first evidence_limit of each finding), by ID.
     events: dict[str, dict[str, Any]]
+    # Every event linked to an included finding that still exists, in timeline order;
+    # JSON and CSV stream them with iter_linked_events().
+    linked_ids: list[str]
     source_files: list[dict[str, Any]]
     events_total: int
     events_unplaced: int
@@ -67,11 +71,13 @@ class ReportData:
         """F0012 for RUN-...-F0012; reports name the run once."""
         return finding_id.rsplit("-", 1)[-1]
 
-    def timeline(self, per_finding: int | None = None) -> list[dict[str, Any]]:
-        """Finding-related events in stable time order, unplaced events last.
+    @cached_property
+    def present(self) -> frozenset[str]:
+        return frozenset(self.linked_ids)
 
-        per_finding limits each finding to its first N evidence events (as the PDF shows them).
-        """
+    def timeline(self) -> list[dict[str, Any]]:
+        """The events the PDF shows, in stable time order, unplaced events last."""
+        per_finding = self.options["evidence_limit"]
         linked: dict[str, list[str]] = defaultdict(list)
         for finding in self.findings:
             for event_id, _ in finding["evidence"][:per_finding]:
@@ -191,10 +197,11 @@ def load_report_data(
     for finding in included:
         finding["evidence"] = evidence.get(finding["finding_id"], [])
 
-    referenced = sorted({eid for f in included for eid, _ in f["evidence"]})
+    linked_ids = _linked_ids(conn, run_id, opts)
+    shown = sorted({eid for f in included for eid, _ in f["evidence"][: opts["evidence_limit"]]})
     event_rows: dict[str, dict[str, Any]] = {}
-    for start in range(0, len(referenced), 500):
-        chunk = referenced[start : start + 500]
+    for start in range(0, len(shown), 500):
+        chunk = shown[start : start + 500]
         for row in conn.execute(select(events).where(events.c.event_id.in_(chunk))).mappings():
             event_rows[row["event_id"]] = dict(row)
 
@@ -228,6 +235,7 @@ def load_report_data(
         run_counts=run_counts,
         excluded=excluded,
         events=event_rows,
+        linked_ids=linked_ids,
         source_files=files,
         events_total=total,
         events_unplaced=unplaced,
@@ -308,6 +316,46 @@ def _changes_since_run(
     if removed:
         changes.append(f"{len(removed)} source file record(s) used by this run no longer exist.")
     return changes
+
+
+def _linked_ids(conn: Connection, run_id: str, opts: dict[str, Any]) -> list[str]:
+    """IDs of existing events linked to the included findings, in timeline order.
+
+    Only the sort keys are read and sorted here, so large evidence sets need neither
+    the full rows in memory nor a large sort inside SQLite.
+    """
+    allowed = SEVERITIES[SEVERITIES.index(opts["min_severity"]) :]
+    linked = (
+        select(finding_events.c.event_id)
+        .join(findings, findings.c.finding_id == finding_events.c.finding_id)
+        .where(
+            findings.c.run_id == run_id,
+            findings.c.severity.in_(allowed),
+            findings.c.status.in_(opts["statuses"]),
+        )
+    )
+    keys = conn.execute(
+        select(
+            events.c.timestamp_utc,
+            events.c.source_file_id,
+            events.c.record_index,
+            events.c.event_id,
+        ).where(events.c.event_id.in_(linked))
+    ).all()
+    ordered = sorted(keys, key=lambda k: (k[0] is None, k[0] or datetime.min, k[1], k[2]))
+    return [k[3] for k in ordered]
+
+
+def iter_linked_events(conn: Connection, data: ReportData) -> Iterator[dict[str, Any]]:
+    """Full rows of data.linked_ids, in that order, 500 at a time."""
+    ids = data.linked_ids
+    for start in range(0, len(ids), 500):
+        chunk = ids[start : start + 500]
+        rows = {
+            row["event_id"]: dict(row)
+            for row in conn.execute(select(events).where(events.c.event_id.in_(chunk))).mappings()
+        }
+        yield from (rows[eid] for eid in chunk if eid in rows)
 
 
 def iter_case_events(conn: Connection, data: ReportData) -> Iterator[dict[str, Any]]:

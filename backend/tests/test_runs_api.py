@@ -6,7 +6,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, delete, func, select
 
 from mizar.db.tables import analysis_runs, events, finding_events, findings
+from mizar.detection import engine as engine_module
+from mizar.detection import runs as runs_module
 from mizar.detection.engine import Detector
+from mizar.detection.rules import load_rules
 from mizar.detection.runs import _previous_status
 from mizar.evidence.store import EvidenceStore
 
@@ -288,3 +291,104 @@ def test_status_carry_over_handles_very_many_findings(api: TestClient, engine: E
     fingerprints = [f"{i:064x}" for i in range(40_000)]
     with engine.connect() as conn:
         assert _previous_status(conn, case_id, "RUN-NEW", fingerprints) == {}
+
+
+def _built(rule_id: str, n: int, severity: str = "low", related: list[str] | None = None) -> dict:
+    return {
+        "rule_id": rule_id,
+        "fingerprint": f"{rule_id}-{n:05d}",
+        "severity": severity,
+        "confidence": "medium",
+        "first_observed_utc": T0 + timedelta(seconds=n),
+        "related_fingerprints": related or [],
+    }
+
+
+def test_findings_are_capped_per_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runs_module, "MAX_FINDINGS_PER_RULE", 3)
+    rules = {r.id: r for r in load_rules()}
+    noisy = [_built("AUTH-001", n) for n in range(10)]
+    noisy[7]["severity"] = "high"  # outranks earlier low ones
+    chain = _built("CORR-001", 0, "high", related=["AUTH-001-00009"])
+    kept, capped = runs_module._cap_per_rule(
+        [*noisy, chain], (rules["AUTH-001"], rules["CORR-001"])
+    )
+    kept_ids = [f["fingerprint"] for f in kept if f["rule_id"] == "AUTH-001"]
+    # Highest severity first, then earliest; the finding the correlation chains is kept too.
+    assert kept_ids == ["AUTH-001-00007", "AUTH-001-00000", "AUTH-001-00001", "AUTH-001-00009"]
+    assert capped == {"AUTH-001": {"matched": 10, "kept": 4}}
+    again, _ = runs_module._cap_per_rule(
+        [*reversed(noisy), chain], (rules["AUTH-001"], rules["CORR-001"])
+    )
+    assert [f["fingerprint"] for f in again] == [f["fingerprint"] for f in kept]
+
+
+def test_capped_run_says_so(
+    api: TestClient, run_jobs: RunJobs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runs_module, "MAX_FINDINGS_PER_RULE", 1)
+    case_id = new_case(api)
+    lines = [
+        f"{(T0 + timedelta(hours=30 + i)):%b %d %H:%M:%S} srv01 sshd[{i}]: Accepted publickey "
+        f"for user{i} from 198.51.100.{i} port 1 ssh2"
+        for i in range(3)
+    ]
+    base = f"{T0:%b %d %H:%M:%S} srv01 sshd[9]: Accepted publickey for x from 10.0.0.1 port 1 ssh2"
+    upload(api, case_id, ("\n".join([base, *lines]) + "\n").encode(), "auth.log", **HINTS)
+    run, found = analyze(api, run_jobs, case_id)
+    assert len(by_rule(found, "AUTH-007")) == 1
+    assert run["results"]["findings_capped"]["AUTH-007"] == {"matched": 3, "kept": 1}
+    note = run["results"]["rule_notes"]["AUTH-007"]["findings_capped"]
+    assert note.startswith("Matched 3 times") and "baseline" in note
+    assert run["manifest"]["config"]["max_findings_per_rule"] == 1
+
+
+def _failures(start: datetime, count: int, ip: str, step: int = 5) -> list[str]:
+    return [
+        f"{(start + timedelta(seconds=i * step)):%b %d %H:%M:%S} srv01 sshd[{i}]: Failed password "
+        f"for root from {ip} port {40000 + i} ssh2"
+        for i in range(count)
+    ]
+
+
+def test_threshold_bursts_are_found_in_one_pass(api: TestClient, run_jobs: RunJobs) -> None:
+    # AUTH-001: at least 20 failures from one address within 10 minutes.
+    case_id = new_case(api)
+    lines = [
+        *_failures(T0, 25, "203.0.113.7"),
+        *_failures(T0 + timedelta(minutes=3), 5, "203.0.113.99", step=60),  # too few
+        *_failures(T0 + timedelta(hours=2), 30, "203.0.113.7"),
+    ]
+    lines.sort()
+    upload(api, case_id, ("\n".join(lines) + "\n").encode(), "auth.log", **HINTS)
+    _, found = analyze(api, run_jobs, case_id)
+    [finding] = by_rule(found, "AUTH-001")
+    detail = api.get(f"/api/findings/{finding['finding_id']}").json()
+    bursts = detail["observed_evidence"]["bursts"]
+    assert [b["count"] for b in bursts] == [25, 30]
+    assert bursts[0]["start_utc"] == "2026-10-27T08:00:00Z"
+    assert bursts[1]["end_utc"] == "2026-10-27T10:02:25Z"
+    assert detail["event_count"] == 55 and detail["evidence_total"] == 55
+    assert detail["first_observed_utc"].startswith("2026-10-27T08:00:00")
+    assert detail["last_observed_utc"].startswith("2026-10-27T10:02:25")
+
+
+def test_group_limit_is_reported(
+    api: TestClient, run_jobs: RunJobs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(engine_module, "MAX_CANDIDATES_PER_RULE", 1)
+    case_id = new_case(api)
+    lines = sorted(
+        [*_failures(T0, 25, "203.0.113.7"), *_failures(T0 + timedelta(hours=1), 25, "198.51.100.3")]
+    )
+    upload(api, case_id, ("\n".join(lines) + "\n").encode(), "auth.log", **HINTS)
+    run, found = analyze(api, run_jobs, case_id)
+    assert len(by_rule(found, "AUTH-001")) == 1
+    note = run["results"]["rule_notes"]["AUTH-001"]["groups_not_evaluated"]
+    assert note == "More than 1 groups matched; 1 later group(s) were not evaluated."
+
+
+def test_correlation_joins_are_tracked_fields() -> None:
+    for rule in load_rules():
+        if rule.type == "correlation":
+            assert rule.spec["correlation"]["join"] in engine_module._SUMMARY_FIELDS, rule.id

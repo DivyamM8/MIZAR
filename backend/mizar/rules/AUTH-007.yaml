@@ -1,10 +1,11 @@
 id: AUTH-007
-version: 1.0.0
+version: 2.0.0
 status: stable
-title: Logon for {username} from a source first seen after the baseline ({source_ip})
+title: Logons for {username} from {first_seen_count} source(s) first seen after the baseline
 description: >
-  A successful logon for {username} from {source_ip} was first recorded after the first
-  {params.baseline} of this case's logon data, with no earlier logon from that address.
+  Successful logons for {username} came from {first_seen_count} source address(es) with no
+  logon from them in the first {params.baseline} of this case's logon data. The new
+  addresses are listed under the observed evidence.
 attack: [T1078]
 type: first_seen
 filter:
@@ -12,6 +13,7 @@ filter:
     - {field: event_type, op: eq, value: logon}
     - {field: event_outcome, op: eq, value: success}
     - {field: source_ip, op: exists}
+group_by: [username]
 first_seen: {key: [username, source_ip], baseline: baseline}
 params:
   baseline: {type: duration, default: 24h, description: Initial period of the data treated as normal}
@@ -23,11 +25,12 @@ confidence:
   reason: Rarity is judged only within this case's data, not the account's full history.
 evidence_strength: inferred
 interpretation: >
-  Within the data in this case, {username} had not logged on from {source_ip} before
-  {first}. The case data may not cover the account's full history.
+  Within the data in this case, {username} logged on from {first_seen_count} address(es)
+  not used in the baseline, the first at {first}. The case data may not cover the account's
+  full history.
 alternative_explanations:
   - The user started working from a new location, VPN or device.
   - The case data starts too late to include earlier logons from this address.
 verification_steps:
-  - Ask the account owner whether the logon from {source_ip} was theirs.
-  - Check what the session did after the logon.
+  - Ask the account owner whether the logons from the new addresses were theirs.
+  - Check what the sessions did after those logons.

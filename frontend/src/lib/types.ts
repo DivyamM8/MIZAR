@@ -213,6 +213,7 @@ export interface RunResults {
   findings_by_rule?: Record<string, number>;
   events_evaluated?: number;
   rule_errors?: { rule_id: string; error: string; message: string }[];
+  findings_capped?: Record<string, { matched: number; kept: number }>;
   rule_notes?: Record<string, Record<string, unknown>>;
   coverage_gaps?: { source_file_id: string | null; filename: string | null; reason: string }[];
   evidence_verification?: Record<string, number>;

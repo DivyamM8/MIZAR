@@ -15,7 +15,7 @@ from sqlalchemy import Connection
 
 from mizar.events.service import read_raw_record, with_parse_constants
 from mizar.evidence.store import EvidenceStore
-from mizar.reporting.data import ReportData, iter_case_events
+from mizar.reporting.data import ReportData, iter_case_events, iter_linked_events
 from mizar.reporting.text import csv_cell
 from mizar.versions import EVENT_SCHEMA_VERSION, MIZAR_VERSION
 
@@ -168,7 +168,7 @@ def _header(data: ReportData, export_id: str) -> dict[str, Any]:
 def _finding_record(data: ReportData, finding: dict[str, Any]) -> dict[str, Any]:
     record = {k: v for k, v in finding.items() if k != "evidence"}
     record["evidence"] = [
-        {"event_id": eid, "role": role, "present": eid in data.events}
+        {"event_id": eid, "role": role, "present": eid in data.present}
         for eid, role in finding["evidence"]
     ]
     return record
@@ -195,10 +195,22 @@ def write_json(
 
     progress("Writing referenced events")
     out.write('"events": [')
-    rows = with_parse_constants(conn, [data.events[eid] for eid in sorted(data.events)])
-    for index, event in enumerate(rows):
-        record = {**event, "raw_record": read_raw_record(conn, store, event)}
-        out.write(("," if index else "") + "\n" + _dumps(record))
+    written = 0
+    batch: list[dict[str, Any]] = []
+
+    def flush() -> None:
+        nonlocal written
+        for event in with_parse_constants(conn, batch):
+            record = {**event, "raw_record": read_raw_record(conn, store, event)}
+            out.write(("," if written else "") + "\n" + _dumps(record))
+            written += 1
+        batch.clear()
+
+    for event in iter_linked_events(conn, data):
+        batch.append(event)
+        if len(batch) == 500:
+            flush()
+    flush()
     out.write("\n]")
     if data.options["all_events"]:
         out.write(
@@ -206,7 +218,7 @@ def write_json(
             '"timestamp_utc (no reliable time last), source_file_id, record_index"}'
         )
     out.write("\n}\n")
-    return {"findings": len(data.findings), "events": len(rows)}
+    return {"findings": len(data.findings), "events": written}
 
 
 def write_ndjson(out: IO[str], conn: Connection, data: ReportData, progress: Progress) -> int:
@@ -294,7 +306,7 @@ def write_csv_bundle(
     if data.options["all_events"]:
         events = iter_case_events(conn, data)
     else:
-        events = (e for e in data.timeline())
+        events = iter_linked_events(conn, data)
     counts = {"findings": len(data.findings), "events": 0}
 
     def counted(rows: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
